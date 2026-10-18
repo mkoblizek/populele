@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Populele – ovládání LED</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#3B2A22">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E9EDEF; --surface:#FFFFFF; --ink:#1B2328; --muted:#5D6B73; --line:#C9D2D7;
+  --wood:#3B2A22; --wood2:#4A352B; --fret:#B9C2C8; --nut:#F1EBDD;
+  --led:#5CC8FF; --ledglow:rgba(92,200,255,.55); --ledoff:#2A1E19;
+  --ok:#1F8A4C; --warn:#B4532A;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121619; --surface:#1C2226; --ink:#E6ECEF; --muted:#94A3AB; --line:#2E383E;
+    --wood:#2A1D17; --wood2:#36261F; --fret:#7E888E; --nut:#CFC7B6;
+    --led:#6FD2FF; --ledglow:rgba(111,210,255,.6); --ledoff:#1D1410;
+    --ok:#4CC27E; --warn:#E8875C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121619; --surface:#1C2226; --ink:#E6ECEF; --muted:#94A3AB; --line:#2E383E;
+  --wood:#2A1D17; --wood2:#36261F; --fret:#7E888E; --nut:#CFC7B6;
+  --led:#6FD2FF; --ledglow:rgba(111,210,255,.6); --ledoff:#1D1410;
+  --ok:#4CC27E; --warn:#E8875C;
+  color-scheme:dark;
+}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;line-height:1.45;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,input{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--led);outline-offset:2px}
+
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);
+  border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:1.25rem;font-weight:800;margin:0;letter-spacing:-.01em;flex:1}
+.status{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--muted)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.status.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.status.on{color:var(--ok)}
+.btn{border:0;border-radius:999px;padding:10px 18px;font-weight:600;cursor:pointer;background:var(--ink);color:var(--surface)}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn:disabled{opacity:.4;cursor:default}
+
+main{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:20px}
+@media (min-width:820px){main{grid-template-columns:auto 1fr;align-items:start}}
+
+.msg{border-radius:12px;padding:12px 14px;background:var(--surface);border-left:4px solid var(--warn);font-size:.95rem}
+.msg[hidden]{display:none}
+
+/* Fretboard: strings are columns, frets are rows — like a chord chart */
+.neck{justify-self:center;background:var(--wood);border-radius:6px 6px 14px 14px;padding:0 10px 14px;
+  background-image:linear-gradient(90deg,var(--wood),var(--wood2) 50%,var(--wood));
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+.labels{display:grid;grid-template-columns:repeat(4,58px);text-align:center;color:var(--nut);
+  font-weight:800;font-size:1.05rem;padding:10px 0 6px}
+.nut{height:9px;background:var(--nut);border-radius:2px}
+.board{position:relative;display:grid;grid-template-columns:repeat(4,58px)}
+.board::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0 28px,rgba(230,220,200,.35) 28px 30px,transparent 30px 58px)}
+.cell{position:relative;height:38px;border:0;background:transparent;padding:0;cursor:pointer;
+  border-bottom:3px solid var(--fret);display:grid;place-items:center}
+.cell span{width:22px;height:22px;border-radius:50%;background:var(--ledoff);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.5);transition:background .08s,box-shadow .08s;position:relative;z-index:1}
+.cell.on span{background:var(--led);box-shadow:0 0 6px 2px var(--ledglow),0 0 18px 4px var(--ledglow)}
+.fretno{position:absolute;left:-26px;font-size:.75rem;color:var(--muted);width:20px;text-align:right}
+.board .marker{position:absolute;right:-16px;width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.6}
+@media (prefers-reduced-motion:reduce){.cell span{transition:none}}
+
+.side{display:grid;gap:22px}
+section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;
+  min-width:52px;font-weight:600;cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--led);box-shadow:0 0 0 2px var(--ledglow) inset}
+.speed{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:.9rem}
+.speed input{flex:1;accent-color:var(--led)}
+details{background:var(--surface);border-radius:12px;padding:12px 14px;border:1px solid var(--line)}
+summary{cursor:pointer;font-weight:600}
+details label{display:block;margin-top:12px;font-size:.92rem}
+details input[type=text]{width:100%;margin-top:4px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+.hex{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;overflow-x:auto;white-space:nowrap;
+  background:var(--bg);padding:8px;border-radius:8px;margin-top:12px;color:var(--muted)}
+.hint{color:var(--muted);font-size:.9rem;margin:6px 0 0}
+textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;padding:10px;border-radius:10px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical}
+.tabview{position:relative;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;margin:12px 0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9rem;line-height:1.35}
+.tabview{max-height:45vh;overflow:auto;white-space:pre}
+.tabview .c{cursor:pointer;border-radius:3px}
+.tabview .c.cur{background:var(--led);color:#06222F}
+.labels span{transition:color .1s}
+.labels span.open{color:var(--led);text-shadow:0 0 8px var(--ledglow)}
+.stepinfo{margin-bottom:10px}
+.check{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:.92rem}
+#tabPlay{min-width:110px}
+.tuner{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center;margin-bottom:10px}
+.tnote{font-size:2.6rem;font-weight:800;line-height:1}
+.tnote.ok{color:var(--ok)}
+.tmeter{position:relative;height:28px;margin:10px 0 6px;border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,transparent calc(50% - 1px),var(--ok) calc(50% - 1px) calc(50% + 1px),transparent calc(50% + 1px))}
+.tneedle{position:absolute;left:50%;top:2px;width:4px;height:24px;margin-left:-2px;border-radius:2px;background:var(--ink);transition:transform .12s}
+.tneedle.ok{background:var(--ok)}
+.tinfo{color:var(--muted);font-size:.92rem}
+@media (prefers-reduced-motion:reduce){.tneedle{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Populele</h1>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Odpojeno</span></div>
+  <button class="btn" id="connectBtn">Připojit</button>
+</header>
+
+<main>
+  <div class="msg" id="msg" hidden></div>
+
+  <div class="neck" aria-label="Hmatník">
+    <div class="labels" id="labels"><span>G</span><span>C</span><span>E</span><span>A</span></div>
+    <div class="nut"></div>
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="side">
+    <section>
+      <h2>Hraní podle tabu</h2>
+      <textarea id="tabText" rows="7" placeholder="Sem vlož tab zkopírovaný z ukulelehunt.com (řádky A|--, E|--, C|--, G|--)" spellcheck="false" autocomplete="off"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="tabLoad">Načíst tab</button>
+        <button class="btn ghost" id="tabPdf">Načíst PDF</button>
+        <button class="btn ghost" id="tabSample">Vložit ukázku</button>
+        <input type="file" id="pdfFile" accept="application/pdf,.pdf" hidden>
+      </div>
+      <p class="hint" id="tabMsg"></p>
+      <div id="tabPlayer" hidden>
+        <pre class="tabview" id="tabView"></pre>
+        <div class="stepinfo"><strong id="tabStep"></strong> <span id="tabNotes"></span></div>
+        <div class="row">
+          <button class="btn ghost" id="tabPrev">Předchozí</button>
+          <button class="btn" id="tabPlay">Přehrát</button>
+          <button class="btn ghost" id="tabNext">Další</button>
+        </div>
+        <div class="speed"><span>Tempo</span><input type="range" id="tempo" min="30" max="200" value="80" aria-label="Tempo"><span id="tempoVal">80</span></div>
+        <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
+        <label class="check"><input type="checkbox" id="sound"> Hrát tóny</label>
+        <p class="hint">Šipky vlevo a vpravo (nebo pedál na otáčení stránek) posouvají po jednom kroku, mezerník spouští a zastavuje. Klepnutím na notu v tabu na ni skočíš. Prázdnou strunu ukulele rozsvítit neumí, takže se zvýrazní jen její písmeno nad hmatníkem.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Ladička</h2>
+      <div class="tuner" aria-live="polite">
+        <div class="tnote" id="tNote">–</div>
+        <div class="tmeter"><div class="tneedle" id="tNeedle"></div></div>
+        <div class="tinfo" id="tInfo">Spusť ladičku a drnkni na jednu strunu.</div>
+      </div>
+      <div class="row">
+        <button class="btn" id="tunerBtn">Spustit ladičku</button>
+      </div>
+      <div class="row" style="margin-top:10px" id="refTones"></div>
+      <label class="check"><input type="checkbox" id="tunerLed" checked> Ukazovat ladění na LEDkách</label>
+      <p class="hint">Na struně se rozsvítí jedna LEDka: u pražců blíž hlavě znamená podladěno, dál směrem k ozvučnici přeladěno. Když struna ladí, rozsvítí se celá.</p>
+    </section>
+
+    <section>
+      <h2>Kreslení</h2>
+      <div class="row">
+        <button class="btn ghost" id="clearBtn">Zhasnout vše</button>
+        <button class="btn ghost" id="allBtn">Rozsvítit vše</button>
+      </div>
+      <p class="hint">Ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou.</p>
+    </section>
+
+    <section>
+      <h2>Akordy</h2>
+      <div class="row" id="chords"></div>
+    </section>
+
+    <section>
+      <h2>Animace</h2>
+      <div class="row" id="anims"></div>
+      <div class="speed"><span>Pomalu</span><input type="range" id="speed" min="80" max="600" value="180" aria-label="Rychlost animace"><span>Rychle</span></div>
+      <p class="hint">Víc než asi 8 snímků za sekundu umí Bluetooth v ukulele rozhodit, proto je rychlost omezená.</p>
+    </section>
+
+    <details>
+      <summary>Nastavení a ladění</summary>
+      <label><input type="checkbox" id="flip"> Otočit směr pražců (když se LEDky rozsvěcí od špatného konce)</label>
+      <label>Vlastní UUID služby (pokud se připojení nenajde)
+        <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="hex" id="hex">—</div>
+    </details>
+  </div>
+</main>
+
+<script>
+(() => {
+  const STRINGS = ['G','C','E','A'];
+  const FRETS = 18;
+  const CHAR_UUID = '0000dc86-0000-1000-8000-00805f9b34fb';
+  const OTA_SVC = 0xfef5; // advertised by the Dialog chip inside the Populele
+  const MIN_INTERVAL = 120; // ms between BLE writes
+
+  // state[s][f] for string s (0=G..3=A), fret f (0 = 1st fret)
+  let state = STRINGS.map(() => new Array(FRETS).fill(false));
+  let device = null, charac = null;
+  let pending = false, lastSent = 0, sendTimer = null, writing = false;
+  let anim = null, animTimer = null, animStep = 0;
+
+  const $ = id => document.getElementById(id);
+  const boardEl = $('board');
+  const cells = [];
+
+  const store = {
+    get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+    set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+  };
+  $('flip').checked = store.get('flip') !== '0'; // reversed frets are the default for this Populele
+  $('customSvc').value = store.get('svc') || '';
+  $('flip').addEventListener('change', e => { store.set('flip', e.target.checked ? '1':'0'); queueSend(); });
+  $('customSvc').addEventListener('change', e => store.set('svc', e.target.value.trim()));
+
+  // ----- Build fretboard -----
+  const MARKERS = [3,5,7,10,12,15,17];
+  for (let f = 0; f < FRETS; f++){
+    for (let s = 0; s < 4; s++){
+      const b = document.createElement('button');
+      b.className = 'cell';
+      b.setAttribute('aria-label', `Struna ${STRINGS[s]}, ${f+1}. pražec`);
+      b.setAttribute('aria-pressed','false');
+      b.dataset.s = s; b.dataset.f = f;
+      b.innerHTML = '<span></span>';
+      if (s === 0){ const n = document.createElement('i'); n.className='fretno'; n.textContent=f+1; n.style.fontStyle='normal'; b.appendChild(n); }
+      if (s === 3 && MARKERS.includes(f+1)){ const m=document.createElement('i'); m.className='marker'; b.appendChild(m); }
+      boardEl.appendChild(b);
+      (cells[s] ||= [])[f] = b;
+    }
+  }
+
+  function render(){
+    for (let s=0;s<4;s++) for (let f=0;f<FRETS;f++){
+      const on = state[s][f];
+      const c = cells[s][f];
+      c.classList.toggle('on', on);
+      c.setAttribute('aria-pressed', on ? 'true':'false');
+    }
+  }
+
+  // Drag-to-paint
+  let painting = false, paintValue = true;
+  boardEl.addEventListener('pointerdown', e => {
+    const c = e.target.closest('.cell'); if (!c) return;
+    stopAnim(); clearChordSel();
+    painting = true;
+    const s=+c.dataset.s, f=+c.dataset.f;
+    paintValue = !state[s][f];
+    setCell(s,f,paintValue);
+    boardEl.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  });
+  boardEl.addEventListener('pointermove', e => {
+    if (!painting) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const c = el && el.closest && el.closest('.cell');
+    if (c) setCell(+c.dataset.s, +c.dataset.f, paintValue);
+  });
+  window.addEventListener('pointerup', () => painting = false);
+  boardEl.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.cell')){
+      const c = e.target.closest('.cell'); stopAnim();
+      setCell(+c.dataset.s, +c.dataset.f, !state[+c.dataset.s][+c.dataset.f]);
+      e.preventDefault();
+    }
+  });
+  boardEl.style.touchAction = 'none';
+
+  function setCell(s,f,v){
+    if (state[s][f] === v) return;
+    state[s][f] = v; render(); queueSend();
+  }
+  function setAll(v){ state = STRINGS.map(() => new Array(FRETS).fill(v)); render(); queueSend(); }
+
+  $('clearBtn').onclick = () => { stopAnim(); clearChordSel(); setAll(false); };
+  $('allBtn').onclick = () => { stopAnim(); clearChordSel(); setAll(true); };
+
+  // ----- Packet encoding (per Hackulele reverse-engineering) -----
+  function stringBytes(arr){
+    let b0=0,b1=0,b2=0;
+    const flip = $('flip').checked;
+    for (let i=0;i<FRETS;i++){
+      if (!arr[i]) continue;
+      const x = flip ? FRETS-1-i : i;
+      if (x > 9) b0 |= 1 << (x-10);
+      else if (x > 1) b1 |= 1 << (x-2);
+      else b2 |= 1 << (x+6);
+    }
+    return [b0 & 0xff, b1 & 0xff, b2 & 0xff];
+  }
+  function buildPacket(){
+    // 0xF1, G, C, E, A (3 bytes each), 6 zero bytes = 19 bytes
+    const p = [0xF1];
+    for (let s=0;s<4;s++) p.push(...stringBytes(state[s]));
+    p.push(0,0,0,0,0,0);
+    return new Uint8Array(p);
+  }
+
+  function queueSend(){
+    const pkt = buildPacket();
+    $('hex').textContent = Array.from(pkt, b => b.toString(16).padStart(2,'0')).join(' ');
+    if (!charac) return;
+    pending = true;
+    const wait = Math.max(0, MIN_INTERVAL - (performance.now() - lastSent));
+    if (!sendTimer) sendTimer = setTimeout(flush, wait);
+  }
+  async function flush(){
+    sendTimer = null;
+    if (!pending || !charac) return;
+    if (writing){ sendTimer = setTimeout(flush, 30); return; }
+    pending = false; writing = true; lastSent = performance.now();
+    const pkt = buildPacket();
+    try {
+      if (charac.writeValueWithoutResponse) await charac.writeValueWithoutResponse(pkt);
+      else await charac.writeValue(pkt);
+    } catch (err) {
+      try { await charac.writeValue(pkt); } catch (e2) { showMsg('Zápis do ukulele selhal: ' + e2.message); }
+    } finally { writing = false; }
+    if (pending) sendTimer = setTimeout(flush, MIN_INTERVAL);
+  }
+
+  // ----- Bluetooth -----
+  function candidateServices(){
+    const list = [];
+    for (let i = 0xffa0; i <= 0xffaf; i++) list.push(i); // Populele: DC86 sits next to FFA3
+    for (let i = 0xdc80; i <= 0xdc8f; i++) list.push(i);
+    list.push(0xfef5, 0xfff0, 0xffe0, 0xfee7, 0x1810, '0000dc86-0000-1000-8000-00805f9b34fb');
+    const custom = $('customSvc').value.trim().toLowerCase();
+    if (custom) list.push(/^[0-9a-f]{4}$/.test(custom) ? parseInt(custom,16) : custom);
+    return list;
+  }
+
+  function setStatus(on, text){
+    $('status').classList.toggle('on', on);
+    $('statusText').textContent = text;
+    $('connectBtn').textContent = on ? 'Odpojit' : 'Připojit';
+  }
+  function showMsg(t){ const m=$('msg'); m.textContent=t; m.hidden=!t; }
+
+  async function connect(){
+    showMsg('');
+    if (!navigator.bluetooth){
+      showMsg('Tenhle prohlížeč neumí Web Bluetooth. Otevři stránku v Chromu na Androidu nebo v Chromu či Edge na počítači. Safari a iPhone Bluetooth z webu nepodporují.');
+      return;
+    }
+    try {
+      setStatus(false, 'Hledám…');
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [OTA_SVC] }, { namePrefix: 'Popu' }, { namePrefix: 'POPU' }],
+        optionalServices: candidateServices()
+      });
+      device.addEventListener('gattserverdisconnected', onDisconnect);
+      setStatus(false, 'Připojuji…');
+      const server = await device.gatt.connect();
+      const services = await server.getPrimaryServices();
+      charac = null;
+      for (const svc of services){
+        try { charac = await svc.getCharacteristic(CHAR_UUID); break; } catch(e){}
+      }
+      if (!charac){
+        const found = services.map(s => s.uuid).join(', ') || 'žádné';
+        showMsg('Připojeno, ale nenašel jsem charakteristiku pro LEDky (…dc86). Dostupné služby: ' + found + '. Zjisti v appce nRF Connect, pod kterou službou je charakteristika 0xDC86, a její UUID zadej v Nastavení.');
+        server.disconnect();
+        return;
+      }
+      setStatus(true, device.name || 'Připojeno');
+      queueSend();
+    } catch (err) {
+      setStatus(false, 'Odpojeno');
+      if (err.name === 'NotFoundError') return; // user cancelled the picker
+      if (err.name === 'SecurityError' || /permission|policy|allowed/i.test(err.message)){
+        showMsg('Prohlížeč tady Bluetooth zablokoval (stránka běží ve vloženém okně). Otevři ji samostatně v Chromu, třeba z GitHub Pages nebo přes localhost.');
+      } else {
+        showMsg('Připojení se nepovedlo: ' + err.message);
+      }
+    }
+  }
+  function onDisconnect(){ charac = null; setStatus(false, 'Odpojeno'); }
+
+  $('connectBtn').onclick = () => {
+    if (device && device.gatt && device.gatt.connected){ device.gatt.disconnect(); return; }
+    connect();
+  };
+
+  // ----- Chords (fret numbers for G C E A; 0 = open) -----
+  const CHORDS = {
+    'C':[0,0,0,3], 'Am':[2,0,0,0], 'F':[2,0,1,0], 'G':[0,2,3,2],
+    'Em':[0,4,3,2], 'Dm':[2,2,1,0], 'D':[2,2,2,0], 'A':[2,1,0,0],
+    'E':[1,4,0,2], 'Bb':[3,2,1,1], 'C7':[0,0,0,1], 'G7':[0,2,1,2],
+    'A7':[0,1,0,0], 'D7':[2,2,2,3], 'E7':[1,2,0,2], 'Fm':[1,0,1,3]
+  };
+  const chordsEl = $('chords');
+  for (const name of Object.keys(CHORDS)){
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = name; b.setAttribute('aria-pressed','false');
+    b.onclick = () => {
+      stopAnim(); clearChordSel(); b.setAttribute('aria-pressed','true');
+      state = STRINGS.map(() => new Array(FRETS).fill(false));
+      CHORDS[name].forEach((fr,s) => { if (fr > 0) state[s][fr-1] = true; });
+      render(); queueSend();
+    };
+    chordsEl.appendChild(b);
+  }
+  function clearChordSel(){ chordsEl.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed','false')); }
+
+  // ----- Animations -----
+  const blank = () => STRINGS.map(() => new Array(FRETS).fill(false));
+  const ANIMS = {
+    'Přejezd': step => {           // a bar sweeping up and down the neck
+      const n = (FRETS-1)*2, p = step % n, f = p < FRETS ? p : n - p;
+      const st = blank(); for (let s=0;s<4;s++) st[s][f] = true; return st;
+    },
+    'Had': step => {               // a snake winding across all strings
+      const total = FRETS*4, st = blank();
+      for (let k=0;k<6;k++){
+        const i = (step - k + total*100) % total, s = Math.floor(i / FRETS);
+        const f = s % 2 === 0 ? i % FRETS : FRETS-1 - (i % FRETS);
+        st[s][f] = true;
+      }
+      return st;
+    },
+    'Jiskry': () => {
+      const st = blank();
+      for (let k=0;k<7;k++) st[Math.floor(Math.random()*4)][Math.floor(Math.random()*FRETS)] = true;
+      return st;
+    },
+    'Vlna': step => {              // diagonal wave
+      const st = blank();
+      for (let s=0;s<4;s++){ const f = (step + s*2) % FRETS; st[s][f] = true; st[s][(f+1)%FRETS] = true; }
+      return st;
+    },
+    'Blikání': step => step % 2 === 0 ? STRINGS.map(() => new Array(FRETS).fill(true)) : blank()
+  };
+  const animsEl = $('anims');
+  for (const name of Object.keys(ANIMS)){
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = name; b.setAttribute('aria-pressed','false');
+    b.onclick = () => {
+      if (anim === name){ stopAnim(); return; }
+      stopAnim(); clearChordSel(); anim = name; animStep = 0;
+      b.setAttribute('aria-pressed','true'); tick();
+    };
+    animsEl.appendChild(b);
+  }
+  function tick(){
+    if (!anim) return;
+    state = ANIMS[anim](animStep++); render(); queueSend();
+    animTimer = setTimeout(tick, 680 - +$('speed').value);
+  }
+  function haltAnim(){
+    anim = null; clearTimeout(animTimer);
+    animsEl.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed','false'));
+  }
+  function stopAnim(){ haltAnim(); pauseTab(); setOpen([]); stopTuner(); }
+
+  // ----- Tabs -----
+  const TAB_ORDER = { G:0, C:1, E:2, A:3 };
+  const SAMPLE = 'Óda na radost (L. van Beethoven)\n' +
+    'A|---------|---------|---------|---------|\n' +
+    'E|-0-0-1-3-|-3-1-0---|-------0-|-0-------|\n' +
+    'C|---------|-------2-|-0-0-2---|-----2-2-|\n' +
+    'G|---------|---------|---------|---------|';
+  let tab = null, tabPos = -1, tabPlaying = false, tabTimer = null, blinkTimer = null;
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function parseTab(text){
+    const lines = text.replace(/\r/g,'').replace(/\t/g,'    ').split('\n');
+    const parsed = lines.map(raw => {
+      let s = raw.replace(/\s+$/,'').replace(/^\s+/,'');
+      let label = null;
+      if (/^[GCEAgcea](?![A-Za-z])/.test(s)){ label = s[0].toUpperCase(); s = s.slice(1).replace(/^\s+/,''); }
+      if ((s.match(/-/g) || []).length < 4) return null;
+      const ok = (s.match(/[-0-9|:hpbrsxX\/\\~().<>^*=\[\]tv ]/g) || []).length;
+      if (ok / s.length < 0.85) return null;
+      return { label, body: s };
+    });
+    const blocks = []; let cur = [];
+    const flushCur = () => { for (let i = 0; i + 4 <= cur.length; i += 4) blocks.push(cur.slice(i, i + 4)); cur = []; };
+    parsed.forEach(p => { if (p) cur.push(p); else flushCur(); });
+    flushCur();
+
+    const steps = [];
+    blocks.forEach((blk, bi) => {
+      const labels = blk.map(l => l.label);
+      const set = new Set(labels);
+      blk.order = (labels.every(Boolean) && set.size === 4 && STRINGS.every(x => set.has(x)))
+        ? labels.map(x => TAB_ORDER[x])
+        : [3, 2, 1, 0]; // no labels: top to bottom A E C G
+      const len = Math.max(...blk.map(l => l.body.length));
+      const busy = [0, 0, 0, 0];
+      const bs = [];
+      for (let c = 0; c < len; c++){
+        const notes = []; let w = 1;
+        for (let r = 0; r < 4; r++){
+          if (busy[r] > c) continue;
+          const b = blk[r].body;
+          if (/[0-9]/.test(b[c] || '')){
+            let num = b[c];
+            if (/[0-9]/.test(b[c+1] || '') && +(b[c] + b[c+1]) <= 24) num += b[c+1];
+            busy[r] = c + num.length; w = Math.max(w, num.length);
+            notes.push({ s: blk.order[r], fret: +num });
+          }
+        }
+        if (notes.length) bs.push({ block: bi, col: c, w, notes });
+      }
+      bs.forEach((st, i) => {
+        if (i + 1 < bs.length){
+          const pipes = (blk[0].body.slice(st.col, bs[i+1].col).match(/\|/g) || []).length; // bar lines take no time
+          st.gap = Math.max(1, bs[i+1].col - st.col - pipes);
+        } else st.gap = Math.max(2, len - st.col);
+      });
+      steps.push(...bs);
+    });
+    return { steps, blocks };
+  }
+
+  function setOpen(list){
+    Array.from($('labels').children).forEach((el, i) => el.classList.toggle('open', list.includes(i)));
+  }
+
+  let curEls = [];
+  // Whole tab in the view; every note column is tappable and tagged with its step
+  function buildTabView(){
+    $('tabView').innerHTML = tab.blocks.map((blk, bi) => {
+      const len = Math.max(...blk.map(l => l.body.length));
+      const colStep = new Map();
+      tab.steps.forEach((st, i) => { if (st.block === bi) for (let k = 0; k < st.w; k++) colStep.set(st.col + k, i); });
+      return blk.map(l => {
+        const b = l.body.padEnd(len, ' ');
+        let out = esc(l.label || '');
+        for (let j = 0; j < b.length; j++){
+          const ch = esc(b[j]);
+          out += colStep.has(j) ? `<span class="c" data-step="${colStep.get(j)}">${ch}</span>` : ch;
+        }
+        return out;
+      }).join('\n');
+    }).join('\n\n');
+    curEls = [];
+    $('tabView').scrollTo(0, 0);
+  }
+  // Highlight the current column and keep it in view while playing
+  function renderTabView(){
+    curEls.forEach(e => e.classList.remove('cur'));
+    curEls = Array.from($('tabView').querySelectorAll(`[data-step="${tabPos}"]`));
+    curEls.forEach(e => e.classList.add('cur'));
+    const el = curEls[0]; if (!el) return;
+    const pre = $('tabView');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    pre.scrollTo({
+      left: Math.max(0, el.offsetLeft - pre.clientWidth / 2),
+      top: Math.max(0, el.offsetTop - pre.clientHeight / 3),
+      behavior: reduce ? 'auto' : 'smooth'
+    });
+  }
+
+  function showStep(i){
+    if (!tab || !tab.steps.length) return;
+    tabPos = Math.max(0, Math.min(tab.steps.length - 1, i));
+    const st = tab.steps[tabPos];
+    const next = STRINGS.map(() => new Array(FRETS).fill(false));
+    const open = []; let tooHigh = false;
+    st.notes.forEach(n => {
+      if (n.fret === 0) open.push(n.s);
+      else if (n.fret <= FRETS) next[n.s][n.fret - 1] = true;
+      else tooHigh = true;
+    });
+    const apply = () => { state = next; render(); queueSend(); setOpen(open); };
+    clearTimeout(blinkTimer);
+    const lit = next.some(r => r.some(Boolean));
+    if (lit && JSON.stringify(next) === JSON.stringify(state)){
+      // same note again: blink off briefly so the repeat is visible
+      state = STRINGS.map(() => new Array(FRETS).fill(false)); render(); queueSend(); setOpen([]);
+      blinkTimer = setTimeout(apply, MIN_INTERVAL + 20);
+    } else apply();
+
+    playNotes(st.notes);
+    $('tabStep').textContent = `Krok ${tabPos + 1} z ${tab.steps.length}:`;
+    const names = st.notes.slice().sort((a,b) => b.s - a.s)
+      .map(n => STRINGS[n.s] + n.fret + (n.fret === 0 ? ' (prázdná)' : ''));
+    $('tabNotes').textContent = names.join(', ') + (tooHigh ? ' – nad 18. pražcem, nezobrazí se' : '');
+    renderTabView();
+  }
+
+  // ----- Sound: plucked-string synth (Karplus-Strong), ukulele tuning G4 C4 E4 A4 -----
+  const OPEN_MIDI = [67, 60, 64, 69];
+  let actx = null, master = null;
+  const pluckCache = new Map();
+  const voices = [null, null, null, null];
+  function audio(){
+    if (!actx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      actx = new AC();
+      master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination);
+    }
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function pluckBuffer(midi){
+    if (pluckCache.has(midi)) return pluckCache.get(midi);
+    const sr = actx.sampleRate, n = Math.floor(sr * 1.6);
+    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+    const p = Math.max(2, Math.round(sr / freq - 0.5));
+    const ring = new Float32Array(p);
+    for (let i = 0; i < p; i++) ring[i] = Math.random() * 2 - 1;
+    const buf = actx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+    let idx = 0;
+    for (let i = 0; i < n; i++){
+      const nx = (idx + 1) % p, v = ring[idx];
+      ring[idx] = 0.996 * 0.5 * (v + ring[nx]);
+      d[i] = v; idx = nx;
+    }
+    pluckCache.set(midi, buf);
+    return buf;
+  }
+  function playNotes(notes, force){
+    if ((!force && !$('sound').checked) || !audio()) return;
+    const t0 = actx.currentTime + 0.01;
+    notes.slice().sort((a, b) => a.s - b.s).forEach((n, k) => {
+      const t = t0 + k * 0.012; // slight strum for chords
+      const old = voices[n.s];
+      if (old){ try { old.g.gain.setTargetAtTime(0, t, 0.015); old.src.stop(t + 0.1); } catch(e){} }
+      const src = actx.createBufferSource();
+      src.buffer = pluckBuffer(OPEN_MIDI[n.s] + n.fret);
+      const g = actx.createGain(); g.gain.value = 0.6;
+      src.connect(g); g.connect(master);
+      src.start(t);
+      voices[n.s] = { src, g };
+    });
+  }
+
+  function stepNext(){
+    if (!tabPlaying) return;
+    if (tabPos + 1 >= tab.steps.length){ pauseTab(); return; }
+    showStep(tabPos + 1);
+    const st = tab.steps[tabPos];
+    const beat = 60000 / +$('tempo').value;
+    const d = $('rhythm').checked ? beat * Math.max(1, st.gap) / 2 : beat;
+    tabTimer = setTimeout(stepNext, Math.max(MIN_INTERVAL * 2, d));
+  }
+  function playTab(){
+    if (!tab || !tab.steps.length) return;
+    haltAnim(); clearChordSel(); stopTuner();
+    tabPlaying = true; $('tabPlay').textContent = 'Pauza';
+    if (tabPos >= tab.steps.length - 1) tabPos = -1;
+    stepNext();
+  }
+  function pauseTab(){
+    tabPlaying = false; clearTimeout(tabTimer);
+    const b = $('tabPlay'); if (b) b.textContent = 'Přehrát';
+  }
+  function go(delta){ if (!tab) return; pauseTab(); haltAnim(); clearChordSel(); stopTuner(); showStep(tabPos + delta); }
+
+  function loadTab(){
+    const text = $('tabText').value;
+    store.set('tab', text);
+    pauseTab();
+    tab = parseTab(text);
+    if (!tab.steps.length){
+      tab = null; $('tabPlayer').hidden = true;
+      $('tabMsg').textContent = 'V textu jsem nenašel žádný tab. Hledám čtyři řádky pod sebou s pomlčkami a čísly pražců, třeba „A|--0--3--|“. Pokud je tab na stránce jako obrázek, kopírováním se text nepřenese.';
+      return;
+    }
+    $('tabMsg').textContent = `Načteno ${tab.steps.length} kroků v ${tab.blocks.length} ${tab.blocks.length === 1 ? 'řádku' : 'řádcích'} tabu.`;
+    $('tabPlayer').hidden = false;
+    buildTabView();
+    haltAnim(); clearChordSel();
+    tabPos = -1; showStep(0);
+  }
+
+  // ----- PDF import (Guitar Pro style tab PDFs with a text layer) -----
+  const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  const loadScript = src => new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.onload = res;
+    s.onerror = () => rej(new Error('Nepodařilo se načíst ' + src)); document.head.appendChild(s);
+  });
+  async function ensurePdfjs(){
+    if (window.pdfjsLib && window.pdfjsWorker) return window.pdfjsLib;
+    await loadScript(PDFJS + 'pdf.worker.min.js'); // runs the PDF engine on the main thread
+    await loadScript(PDFJS + 'pdf.min.js');
+    return window.pdfjsLib;
+  }
+  async function pdfToAsciiTab(pdfjsLib, data){
+    const OPS = pdfjsLib.OPS;
+    const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+    const allStaves = []; let title = '', titleSize = 0;
+    const mul = (m, n) => [m[0]*n[0]+m[2]*n[1], m[1]*n[0]+m[3]*n[1], m[0]*n[2]+m[2]*n[3], m[1]*n[2]+m[3]*n[3], m[0]*n[4]+m[2]*n[5]+m[4], m[1]*n[4]+m[3]*n[5]+m[5]];
+    for (let pn = 1; pn <= doc.numPages; pn++){
+      const page = await doc.getPage(pn);
+      // --- vector segments ---
+      const ol = await page.getOperatorList();
+      const hseg = [], vseg = [];
+      let ctm = [1,0,0,1,0,0]; const stack = [];
+      const tp = (x, y) => [ctm[0]*x + ctm[2]*y + ctm[4], ctm[1]*x + ctm[3]*y + ctm[5]];
+      const addSeg = (a, b) => {
+        const dx = Math.abs(a[0]-b[0]), dy = Math.abs(a[1]-b[1]);
+        if (dy < 0.4 && dx > 3) hseg.push({ y:(a[1]+b[1])/2, x1:Math.min(a[0],b[0]), x2:Math.max(a[0],b[0]) });
+        else if (dx < 0.4 && dy > 3) vseg.push({ x:(a[0]+b[0])/2, y1:Math.min(a[1],b[1]), y2:Math.max(a[1],b[1]) });
+      };
+      for (let i = 0; i < ol.fnArray.length; i++){
+        const fn = ol.fnArray[i], args = ol.argsArray[i];
+        if (fn === OPS.save) stack.push(ctm.slice());
+        else if (fn === OPS.restore) ctm = stack.pop() || [1,0,0,1,0,0];
+        else if (fn === OPS.transform) ctm = mul(ctm, args);
+        else if (fn === OPS.constructPath){
+          const ops = args[0], co = args[1]; let k = 0, cur = null, start = null;
+          for (const op of ops){
+            if (op === OPS.moveTo){ cur = tp(co[k], co[k+1]); start = cur; k += 2; }
+            else if (op === OPS.lineTo){ const p = tp(co[k], co[k+1]); if (cur) addSeg(cur, p); cur = p; k += 2; }
+            else if (op === OPS.curveTo){ cur = tp(co[k+4], co[k+5]); k += 6; }
+            else if (op === OPS.curveTo2 || op === OPS.curveTo3){ cur = tp(co[k+2], co[k+3]); k += 4; }
+            else if (op === OPS.closePath){ if (cur && start) addSeg(cur, start); cur = start; }
+            else if (op === OPS.rectangle){
+              const [x, y, w, h] = co.slice(k, k+4); k += 4;
+              const p = [tp(x,y), tp(x+w,y), tp(x+w,y+h), tp(x,y+h)];
+              const bw = Math.abs(p[1][0]-p[0][0]) + Math.abs(p[3][0]-p[0][0]);
+              const bh = Math.abs(p[1][1]-p[0][1]) + Math.abs(p[3][1]-p[0][1]);
+              if (bh < 1.5 && bw > 3) hseg.push({ y:(p[0][1]+p[2][1])/2, x1:Math.min(p[0][0],p[2][0]), x2:Math.max(p[0][0],p[2][0]) });
+              else if (bw < 1.5 && bh > 3) vseg.push({ x:(p[0][0]+p[2][0])/2, y1:Math.min(p[0][1],p[2][1]), y2:Math.max(p[0][1],p[2][1]) });
+            }
+          }
+        }
+      }
+      // --- staff detection: 4 evenly spaced horizontal levels ---
+      hseg.sort((a,b) => b.y - a.y);
+      const levels = [];
+      for (const s of hseg){
+        const L = levels.find(l => Math.abs(l.y - s.y) < 0.6);
+        if (L){ L.len += s.x2 - s.x1; L.x1 = Math.min(L.x1, s.x1); L.x2 = Math.max(L.x2, s.x2); }
+        else levels.push({ y:s.y, len:s.x2 - s.x1, x1:s.x1, x2:s.x2 });
+      }
+      levels.sort((a,b) => b.y - a.y);
+      const used = new Set(); const staves = [];
+      for (let i = 0; i < levels.length; i++){
+        if (used.has(i)) continue;
+        for (let j = i+1; j < levels.length; j++){
+          const s = levels[i].y - levels[j].y;
+          if (s > 15) break;
+          if (s < 3.5) continue;
+          const idx = [i, j];
+          for (let m = 2; m < 4; m++){
+            const want = levels[i].y - m*s;
+            const k = levels.findIndex((l, q) => q > j && Math.abs(l.y - want) < 0.7);
+            if (k < 0) break; idx.push(k);
+          }
+          if (idx.length < 4) continue;
+          const lens = idx.map(q => levels[q].len);
+          if (Math.min(...lens) / Math.max(...lens) < 0.6 || Math.min(...lens) < 40) continue;
+          idx.forEach(q => used.add(q));
+          staves.push({ ys: idx.map(q => levels[q].y), s, x1: Math.min(...idx.map(q=>levels[q].x1)), x2: Math.max(...idx.map(q=>levels[q].x2)), notes: [], bars: [] });
+          break;
+        }
+      }
+      // barlines
+      for (const st of staves){
+        const top = st.ys[0], bot = st.ys[3];
+        vseg.forEach(v => {
+          if (v.y1 <= bot + 1 && v.y2 >= top - 1 && v.y2 - v.y1 < (top - bot) * 1.3 && v.x >= st.x1 - 2 && v.x <= st.x2 + 2)
+            if (!st.bars.some(b => Math.abs(b - v.x) < 3)) st.bars.push(v.x);
+        });
+      }
+      // --- text: fret numbers ---
+      const tc = await page.getTextContent();
+      const glyphs = [];
+      tc.items.forEach(it => {
+        const size = Math.hypot(it.transform[2], it.transform[3]);
+        if (it.str.trim() && size > titleSize){ titleSize = size; title = it.str.trim(); }
+        if (!/^[0-9Xx]+$/.test(it.str.trim())) return;
+        glyphs.push({ str: it.str.trim(), x: it.transform[4], y: it.transform[5], w: it.width, size, font: it.fontName });
+      });
+      glyphs.sort((a,b) => Math.abs(a.y-b.y) < 0.5 ? a.x - b.x : b.y - a.y);
+      const tokens = [];
+      glyphs.forEach(g => {
+        const t = tokens[tokens.length-1];
+        if (t && t.font === g.font && Math.abs(t.y - g.y) < 0.5 && g.x - (t.x + t.w) < 1.2 && /^\d+$/.test(t.str + g.str)){ t.str += g.str; t.w = g.x + g.w - t.x; }
+        else tokens.push({ ...g });
+      });
+      const cand = [];
+      tokens.forEach(t => {
+        const cy = t.y + 0.36 * t.size, cx = t.x + t.w / 2;
+        for (const st of staves){
+          if (cx < st.x1 - 5 || cx > st.x2 + 5) continue;
+          let best = -1, bd = 1e9;
+          st.ys.forEach((y, r) => { const d = Math.abs(cy - y); if (d < bd){ bd = d; best = r; } });
+          if (bd < 0.4 * st.s){ cand.push({ st, r: best, cx, str: t.str, font: t.font }); break; }
+        }
+      });
+      const fc = {}; cand.forEach(c => fc[c.font] = (fc[c.font] || 0) + 1);
+      const mainFont = Object.keys(fc).sort((a,b) => fc[b] - fc[a])[0];
+      cand.filter(c => c.font === mainFont && !/x/i.test(c.str)).forEach(c => c.st.notes.push(c));
+      staves.forEach(st => { if (st.notes.length) allStaves.push(st); });
+    }
+    // --- columns -> steps ---
+    const dxs = [];
+    allStaves.forEach(st => {
+      st.notes.sort((a,b) => a.cx - b.cx);
+      st.steps = [];
+      st.notes.forEach(n => {
+        const last = st.steps[st.steps.length-1];
+        if (last && n.cx - last.x < 0.5 * st.s && last.n[n.r] === undefined) last.n[n.r] = n.str;
+        else { const n4 = []; n4[n.r] = n.str; st.steps.push({ x: n.cx, n: n4 }); }
+      });
+      for (let i = 1; i < st.steps.length; i++) dxs.push(st.steps[i].x - st.steps[i-1].x);
+    });
+    dxs.sort((a,b) => a-b);
+    const med = dxs.length ? dxs[Math.floor(dxs.length/2)] : 10;
+    const labels = ['A','E','C','G'];
+    const out = [];
+    allStaves.forEach(st => {
+      const rows = labels.map(l => l + '|-');
+      const bars = st.bars.slice().sort((a,b)=>a-b);
+      st.steps.forEach((step, i) => {
+        const w = Math.max(...step.n.filter(Boolean).map(s => s.length));
+        for (let r = 0; r < 4; r++) rows[r] += (step.n[r] || '').padEnd(w, '-');
+        const next = st.steps[i+1];
+        const barAt = next ? bars.find(b => b > step.x + 2 && b < next.x - 2) : null;
+        // the space after a bar line is padding, not duration
+        const span = next ? (barAt != null ? barAt - step.x : next.x - step.x) : 0;
+        const dash = next ? Math.max(1, 2 * Math.max(1, Math.round(span / med)) - w) : 2; // quantize to note slots
+        if (barAt != null){
+          const before = dash;
+          for (let r = 0; r < 4; r++) rows[r] += '-'.repeat(before) + '|' + '-'.repeat(Math.max(0, dash - before));
+        } else for (let r = 0; r < 4; r++) rows[r] += '-'.repeat(dash);
+      });
+      for (let r = 0; r < 4; r++) rows[r] += '|';
+      out.push(rows.join('\n'));
+    });
+    return { title, text: (title ? title + '\n\n' : '') + out.join('\n\n'), staves: allStaves.length, notes: allStaves.reduce((a,s)=>a+s.steps.length,0) };
+  }
+
+  $('tabPdf').onclick = () => $('pdfFile').click();
+  $('pdfFile').addEventListener('change', async e => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    $('tabMsg').textContent = 'Čtu PDF…';
+    try {
+      const lib = await ensurePdfjs();
+      const res = await pdfToAsciiTab(lib, new Uint8Array(await file.arrayBuffer()));
+      if (!res.staves){
+        $('tabMsg').textContent = 'V PDF jsem nenašel tabulaturu se čtyřmi linkami a čísly pražců. Pokud jde čísla v PDF označit myší, pošli soubor k úpravě importu; naskenované PDF takhle načíst nejde.';
+        return;
+      }
+      $('tabText').value = res.text;
+      loadTab();
+      if (tab) $('tabMsg').textContent = `Z PDF „${res.title || file.name}“ načteno ${res.staves} řádků tabu a ${tab.steps.length} kroků. Repetice se přehrávají jen jednou.`;
+    } catch (err) {
+      $('tabMsg').textContent = 'PDF se nepodařilo přečíst: ' + err.message;
+    }
+  });
+
+  // ----- Tuner: microphone + McLeod pitch detection -----
+  const TUNE = [
+    { s: 0, name: 'G', f: 392.00 }, { s: 1, name: 'C', f: 261.63 },
+    { s: 2, name: 'E', f: 329.63 }, { s: 3, name: 'A', f: 440.00 },
+    { s: 0, name: 'G', f: 196.00, low: true } // low-G tuning
+  ];
+  let tStream = null, tAnalyser = null, tBuf = null, tRaf = 0, tHist = [], tLastHeard = 0, tLedKey = '';
+
+  function detectPitch(buf, sr){
+    const n = buf.length;
+    let rms = 0; for (let i = 0; i < n; i++) rms += buf[i] * buf[i];
+    if (Math.sqrt(rms / n) < 0.01) return -1;
+    const minLag = Math.floor(sr / 1000), maxLag = Math.min(Math.ceil(sr / 170), Math.floor(n / 2));
+    const nsdf = new Float32Array(maxLag + 2);
+    for (let lag = minLag; lag <= maxLag + 1; lag++){
+      let r = 0, m = 0;
+      for (let i = 0; i + lag < n; i++){ const a = buf[i], b = buf[i + lag]; r += a * b; m += a * a + b * b; }
+      nsdf[lag] = m > 0 ? 2 * r / m : 0;
+    }
+    // collect positive peaks, take the first one close to the highest
+    const peaks = [];
+    for (let lag = minLag + 1; lag <= maxLag; lag++)
+      if (nsdf[lag] > 0 && nsdf[lag] >= nsdf[lag - 1] && nsdf[lag] > nsdf[lag + 1]) peaks.push(lag);
+    if (!peaks.length) return -1;
+    const top = Math.max(...peaks.map(p => nsdf[p]));
+    if (top < 0.6) return -1;
+    const p = peaks.find(l => nsdf[l] >= 0.9 * top);
+    const a = nsdf[p - 1], b = nsdf[p], c = nsdf[p + 1];
+    const shift = (a - c) / (2 * (a - 2 * b + c)) || 0;
+    return sr / (p + shift);
+  }
+
+  function tunerLeds(s, cents){
+    if (!$('tunerLed').checked) return;
+    const st = STRINGS.map(() => new Array(FRETS).fill(false));
+    if (s != null){
+      if (Math.abs(cents) < 5) st[s].fill(true);
+      else st[s][Math.max(0, Math.min(FRETS - 1, Math.round((FRETS - 1) / 2 + cents / 50 * (FRETS - 1) / 2)))] = true;
+    }
+    const key = JSON.stringify(st);
+    if (key === tLedKey) return;
+    tLedKey = key; state = st; render(); queueSend();
+  }
+
+  function tunerLoop(){
+    tRaf = requestAnimationFrame(tunerLoop);
+    tAnalyser.getFloatTimeDomainData(tBuf);
+    const f = detectPitch(tBuf, actx.sampleRate);
+    const now = performance.now();
+    if (f < 0){
+      if (now - tLastHeard > 1500){
+        tHist = [];
+        $('tInfo').textContent = 'Drnkni na jednu strunu.';
+        $('tNote').textContent = '–'; $('tNote').classList.remove('ok');
+        $('tNeedle').style.transform = 'translateX(0)'; $('tNeedle').classList.remove('ok');
+        tunerLeds(null, 0);
+      }
+      return;
+    }
+    tLastHeard = now;
+    tHist.push(f); if (tHist.length > 7) tHist.shift();
+    const fm = tHist.slice().sort((x, y) => x - y)[Math.floor(tHist.length / 2)];
+    let best = TUNE[0], bc = Infinity;
+    TUNE.forEach(t => { const c = 1200 * Math.log2(fm / t.f); if (Math.abs(c) < Math.abs(bc)){ bc = c; best = t; } });
+    const ok = Math.abs(bc) < 5;
+    $('tNote').textContent = best.name + (best.low ? ' (nízká)' : '');
+    $('tNote').classList.toggle('ok', ok);
+    const meterW = $('tNeedle').parentElement.clientWidth / 2;
+    $('tNeedle').style.transform = `translateX(${Math.max(-1, Math.min(1, bc / 50)) * (meterW - 4)}px)`;
+    $('tNeedle').classList.toggle('ok', ok);
+    $('tInfo').textContent = ok ? `${fm.toFixed(1)} Hz – ladí` :
+      `${fm.toFixed(1)} Hz, ${bc > 0 ? '+' : '−'}${Math.abs(Math.round(bc))} centů – ${bc > 0 ? 'povol strunu' : 'přitáhni strunu'}`;
+    tunerLeds(best.s, bc);
+  }
+
+  async function startTuner(){
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      $('tInfo').textContent = 'Mikrofon tu není dostupný. Stránka musí běžet přes https nebo localhost.';
+      return;
+    }
+    haltAnim(); pauseTab(); setOpen([]); clearChordSel();
+    if (!audio()) return;
+    try {
+      tStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    } catch (err) {
+      $('tInfo').textContent = err.name === 'NotAllowedError'
+        ? 'Přístup k mikrofonu je zamítnutý. Povol ho v nastavení stránky (ikona vlevo v adresním řádku).'
+        : 'Mikrofon se nepodařilo spustit: ' + err.message;
+      tStream = null; return;
+    }
+    const src = actx.createMediaStreamSource(tStream);
+    tAnalyser = actx.createAnalyser(); tAnalyser.fftSize = 2048;
+    src.connect(tAnalyser);
+    tBuf = new Float32Array(tAnalyser.fftSize);
+    tHist = []; tLastHeard = 0; tLedKey = '';
+    $('tunerBtn').textContent = 'Zastavit ladičku';
+    $('tInfo').textContent = 'Drnkni na jednu strunu.';
+    tunerLoop();
+  }
+  function stopTuner(){
+    if (!tStream) return;
+    cancelAnimationFrame(tRaf);
+    tStream.getTracks().forEach(t => t.stop());
+    tStream = null; tAnalyser = null;
+    $('tunerBtn').textContent = 'Spustit ladičku';
+    $('tNote').textContent = '–'; $('tNote').classList.remove('ok');
+    $('tNeedle').style.transform = 'translateX(0)'; $('tNeedle').classList.remove('ok');
+    $('tInfo').textContent = 'Spusť ladičku a drnkni na jednu strunu.';
+  }
+  $('tunerBtn').onclick = () => tStream ? stopTuner() : startTuner();
+  ['G', 'C', 'E', 'A'].forEach((name, s) => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = name;
+    b.setAttribute('aria-label', `Zahrát tón struny ${name}`);
+    b.onclick = () => playNotes([{ s, fret: 0 }], true);
+    $('refTones').appendChild(b);
+  });
+
+  $('tabText').value = store.get('tab') || '';
+  $('tabLoad').onclick = loadTab;
+  $('tabSample').onclick = () => { $('tabText').value = SAMPLE; loadTab(); };
+  $('tabView').addEventListener('click', e => {
+    const c = e.target.closest('[data-step]'); if (!c) return;
+    const wasPlaying = tabPlaying;
+    pauseTab(); haltAnim(); clearChordSel(); showStep(+c.dataset.step);
+    if (wasPlaying){ tabPlaying = true; $('tabPlay').textContent = 'Pauza'; stepNextLater(); }
+  });
+  function stepNextLater(){
+    const beat = 60000 / +$('tempo').value;
+    const st = tab.steps[tabPos];
+    const d = $('rhythm').checked ? beat * Math.max(1, st.gap) / 2 : beat;
+    tabTimer = setTimeout(stepNext, Math.max(MIN_INTERVAL * 2, d));
+  }
+  $('tabPrev').onclick = () => go(-1);
+  $('tabNext').onclick = () => go(1);
+  $('tabPlay').onclick = () => tabPlaying ? pauseTab() : playTab();
+  $('tempo').addEventListener('input', e => $('tempoVal').textContent = e.target.value);
+  $('sound').checked = store.get('sound') !== '0';
+  $('sound').addEventListener('change', e => { store.set('sound', e.target.checked ? '1' : '0'); if (e.target.checked) audio(); });
+  document.addEventListener('keydown', e => {
+    if (!tab) return;
+    const t = e.target;
+    if (t.matches && t.matches('textarea, input')) return;
+    if (e.key === 'ArrowRight' || e.key === 'PageDown'){ e.preventDefault(); go(1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp'){ e.preventDefault(); go(-1); }
+    else if (e.key === ' ' && !(t.matches && t.matches('button'))){ e.preventDefault(); tabPlaying ? pauseTab() : playTab(); }
+  });
+
+  render(); queueSend();
+  if (!navigator.bluetooth){
+    showMsg('Tenhle prohlížeč neumí Web Bluetooth. Kreslit si můžeš, ale k ukulele se připojíš jen z Chromu na Androidu nebo z Chromu či Edge na počítači.');
+  }
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
