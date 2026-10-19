@@ -204,7 +204,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
       </label>
       <div class="hex" id="hex">—</div>
-      <p class="hint">Verze appky: 4</p>
+      <p class="hint">Verze appky: 5</p>
     </details>
   </div>
 </main>
@@ -704,6 +704,27 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
     await loadScript(PDFJS + 'pdf.min.js');
     return window.pdfjsLib;
   }
+  // Digit shapes (8x12 grids of Arial-, Times- and Verdana-like fonts) for PDFs without a text layer
+  const GLYPH_REF = [["0",0.683,"3c6642c3c3c3c3c3c342663c"],["1",0.63,"1878d81818181818181818ff"],["2",0.657,"3c66c30302060c183060c0ff"],["3",0.676,"3c66c303021c1e0303c3663c"],["4",0.739,"040c1c14342444c4ff040404"],["5",0.679,"7e404040dcfe030303c3663c"],["6",0.655,"3c6642c0dce6c3c3c343663c"],["7",0.667,"ff0302060c08181810103030"],["8",0.669,"3c66c3c3423c66c3c3c3623c"],["9",0.655,"3c66c2c3c3c3673b0342663c"],["0",0.637,"3c6642c3c3c3c3c3c342663c"],["1",0.538,"1878181818181818181818ff"],["2",0.614,"fc86830303060408106080ff"],["3",0.627,"fc868202063c0603038382fc"],["4",0.712,"04040c1404244404ff040404"],["5",0.617,"fe80808080fc0303038382fc"],["6",0.649,"1e6240c0c0fec3c3c343623c"],["7",0.626,"ff8182060408081010302040"],["8",0.637,"3c42c3c3423c42c3c3c3c33c"],["9",0.642,"3c46c3c3c3c37f0303020678"],["0",0.669,"3c6642c3c3c3c3c3c342663c"],["1",0.603,"f8f8181818181818181818ff"],["2",0.635,"7ce6030303060c183060c0ff"],["3",0.642,"fcc60303063c06030303cefc"],["4",0.74,"0c0c143424644484ff040404"],["5",0.638,"7e4040407c4e03030303cefc"],["6",0.675,"1e7240c0dce6c3c3c343663c"],["7",0.651,"ff030606040c0c0818103030"],["8",0.669,"3c66c3c3423c66c3c3c3663c"],["9",0.675,"3c66c2c3c3c3673b03024e78"]].map(([d, ar, hx]) => ({ d, ar, bits: Array.from(hx, c => parseInt(c, 16).toString(2).padStart(4, '0')).join('') }));
+  function classifyGlyph(subs, x1, x2, y1, y2){
+    const w = x2 - x1, h = y2 - y1, ar = w / h;
+    if (ar < 0.45) return '1'; // only a 1 is this narrow
+    const inside = (x, y) => { let c = false;
+      for (const s of subs) for (let i = 0, j = s.length - 1; i < s.length; j = i++){
+        const [xi, yi] = s[i], [xj, yj] = s[j];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+      }
+      return c; };
+    let b = '';
+    for (let gy = 0; gy < 12; gy++) for (let gx = 0; gx < 8; gx++) b += inside(x1 + (gx + .5) * w / 8, y2 - (gy + .5) * h / 12) ? '1' : '0';
+    let best = null, bd = Infinity;
+    for (const R of GLYPH_REF){
+      let dist = Math.abs(ar - R.ar) * 40;
+      for (let i = 0; i < 96; i++) if (b[i] !== R.bits[i]) dist++;
+      if (dist < bd){ bd = dist; best = R.d; }
+    }
+    return bd <= 20 ? best : null;
+  }
   async function pdfToAsciiTab(pdfjsLib, data){
     const OPS = pdfjsLib.OPS;
     const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
@@ -714,6 +735,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       // --- vector segments ---
       const ol = await page.getOperatorList();
       const hseg = [], vseg = [];
+      const fills = []; let fpath = [], fsub = null; // filled shapes, for PDFs that draw digits as vector outlines
       let ctm = [1,0,0,1,0,0]; const stack = [];
       const tp = (x, y) => [ctm[0]*x + ctm[2]*y + ctm[4], ctm[1]*x + ctm[3]*y + ctm[5]];
       const addSeg = (a, b) => {
@@ -729,14 +751,20 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         else if (fn === OPS.constructPath){
           const ops = args[0], co = args[1]; let k = 0, cur = null, start = null;
           for (const op of ops){
-            if (op === OPS.moveTo){ cur = tp(co[k], co[k+1]); start = cur; k += 2; }
-            else if (op === OPS.lineTo){ const p = tp(co[k], co[k+1]); if (cur) addSeg(cur, p); cur = p; k += 2; }
-            else if (op === OPS.curveTo){ cur = tp(co[k+4], co[k+5]); k += 6; }
-            else if (op === OPS.curveTo2 || op === OPS.curveTo3){ cur = tp(co[k+2], co[k+3]); k += 4; }
+            if (op === OPS.moveTo){ cur = tp(co[k], co[k+1]); start = cur; fsub = [cur]; fpath.push(fsub); k += 2; }
+            else if (op === OPS.lineTo){ const p = tp(co[k], co[k+1]); if (cur) addSeg(cur, p); cur = p; if (fsub) fsub.push(p); k += 2; }
+            else if (op === OPS.curveTo){
+              const p0 = cur || tp(co[k], co[k+1]), p1 = tp(co[k], co[k+1]), p2 = tp(co[k+2], co[k+3]), p3 = tp(co[k+4], co[k+5]);
+              if (fsub) for (let t = 1; t <= 6; t++){ const u = t / 6, v = 1 - u;
+                fsub.push([v*v*v*p0[0] + 3*v*v*u*p1[0] + 3*v*u*u*p2[0] + u*u*u*p3[0], v*v*v*p0[1] + 3*v*v*u*p1[1] + 3*v*u*u*p2[1] + u*u*u*p3[1]]); }
+              cur = p3; k += 6;
+            }
+            else if (op === OPS.curveTo2 || op === OPS.curveTo3){ cur = tp(co[k+2], co[k+3]); if (fsub) fsub.push(cur); k += 4; }
             else if (op === OPS.closePath){ if (cur && start) addSeg(cur, start); cur = start; }
             else if (op === OPS.rectangle){
               const [x, y, w, h] = co.slice(k, k+4); k += 4;
               const p = [tp(x,y), tp(x+w,y), tp(x+w,y+h), tp(x,y+h)];
+              fpath.push(p.slice());
               const bw = Math.abs(p[1][0]-p[0][0]) + Math.abs(p[3][0]-p[0][0]);
               const bh = Math.abs(p[1][1]-p[0][1]) + Math.abs(p[3][1]-p[0][1]);
               if (bh < 1.5 && bw > 3) hseg.push({ y:(p[0][1]+p[2][1])/2, x1:Math.min(p[0][0],p[2][0]), x2:Math.max(p[0][0],p[2][0]) });
@@ -744,6 +772,8 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
             }
           }
         }
+        else if (fn === OPS.fill || fn === OPS.eoFill || fn === OPS.fillStroke || fn === OPS.eoFillStroke){ if (fpath.length) fills.push(fpath); fpath = []; fsub = null; }
+        else if (fn === OPS.stroke || fn === OPS.endPath || fn === OPS.closeStroke){ fpath = []; fsub = null; }
       }
       // --- staff detection: 4 evenly spaced horizontal levels ---
       hseg.sort((a,b) => b.y - a.y);
@@ -799,6 +829,26 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         if (t && t.font === g.font && Math.abs(t.y - g.y) < 0.5 && g.x - (t.x + t.w) < 1.2 && (/^\d+$/.test(t.str + g.str) || /^[!-*]+$/.test(t.str + g.str))){ t.str += g.str; t.w = g.x + g.w - t.x; }
         else tokens.push({ ...g });
       });
+      // No text layer: read fret numbers from vector glyph outlines
+      if (glyphs.length < 10 && staves.length){
+        const sMed = staves.map(s => s.s).sort((a,b) => a - b)[Math.floor(staves.length / 2)];
+        const vg = [];
+        fills.forEach(sp => {
+          const pts = sp.flat(); if (pts.length < 4) return;
+          const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+          const x1 = Math.min(...xs), x2 = Math.max(...xs), y1 = Math.min(...ys), y2 = Math.max(...ys), w = x2 - x1, gh = y2 - y1;
+          if (gh < 0.6 * sMed || gh > 1.2 * sMed || w > gh || w < 0.15 * gh) return;
+          const d = classifyGlyph(sp, x1, x2, y1, y2); if (d == null) return;
+          const size = 0.85 * sMed;
+          vg.push({ str: d, x: x1, w, size, y: (y1 + y2) / 2 - 0.36 * size, font: 'vector' });
+        });
+        vg.sort((a,b) => Math.abs(a.y - b.y) < 0.6 ? a.x - b.x : b.y - a.y);
+        vg.forEach(g => {
+          const t = tokens[tokens.length - 1];
+          if (t && t.font === 'vector' && Math.abs(t.y - g.y) < 0.6 && g.x - (t.x + t.w) < 0.4 * g.size && t.str.length < 2){ t.str += g.str; t.w = g.x + g.w - t.x; }
+          else tokens.push({ ...g });
+        });
+      }
       const cand = [];
       tokens.forEach(t => {
         const cy = t.y + 0.36 * t.size, cx = t.x + t.w / 2;
