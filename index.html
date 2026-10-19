@@ -80,6 +80,7 @@ main{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:20px}
 .board{position:relative;display:grid;grid-template-columns:repeat(4,var(--col))}
 .board::before{content:"";position:absolute;inset:0;pointer-events:none;
   background:repeating-linear-gradient(90deg,transparent 0 calc(var(--col)/2 - 1px),rgba(230,220,200,.35) calc(var(--col)/2 - 1px) calc(var(--col)/2 + 1px),transparent calc(var(--col)/2 + 1px) var(--col))}
+.board.locked .cell{cursor:default}
 .cell{position:relative;height:38px;border:0;background:transparent;padding:0;cursor:pointer;
   border-bottom:3px solid var(--fret);display:grid;place-items:center}
 .cell span{width:22px;height:22px;border-radius:50%;background:var(--ledoff);
@@ -154,7 +155,8 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <button class="btn ghost" id="clearBtn">Zhasnout vše</button>
         <button class="btn ghost" id="allBtn">Rozsvítit vše</button>
       </div>
-      <p class="hint">Ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou.</p>
+      <label class="check"><input type="checkbox" id="drawOn"> Kreslit po hmatníku</label>
+      <p class="hint">Se zapnutým kreslením ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou. Když je kreslení vypnuté, hmatník na dotyk nereaguje a stránka se přes něj dá normálně posouvat.</p>
     </section>
 
     <section>
@@ -212,7 +214,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
       </label>
       <div class="hex" id="hex">—</div>
-      <p class="hint">Verze appky: 8</p>
+      <p class="hint">Verze appky: 9</p>
     </details>
   </div>
 </main>
@@ -273,6 +275,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
   // Drag-to-paint
   let painting = false, paintValue = true;
   boardEl.addEventListener('pointerdown', e => {
+    if (!$('drawOn').checked) return;
     const c = e.target.closest('.cell'); if (!c) return;
     stopAnim(); clearChordSel();
     painting = true;
@@ -290,13 +293,23 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
   });
   window.addEventListener('pointerup', () => painting = false);
   boardEl.addEventListener('keydown', e => {
+    if (!$('drawOn').checked) return;
     if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.cell')){
       const c = e.target.closest('.cell'); stopAnim();
       setCell(+c.dataset.s, +c.dataset.f, !state[+c.dataset.s][+c.dataset.f]);
       e.preventDefault();
     }
   });
-  boardEl.style.touchAction = 'none';
+  // Drawing is off by default: the board then lets the page scroll and its cells leave the tab order
+  function applyDrawMode(){
+    const on = $('drawOn').checked;
+    boardEl.style.touchAction = on ? 'none' : 'pan-y';
+    boardEl.classList.toggle('locked', !on);
+    boardEl.querySelectorAll('.cell').forEach(c => { c.tabIndex = on ? 0 : -1; c.setAttribute('aria-disabled', on ? 'false' : 'true'); });
+    if (!on) painting = false;
+  }
+  $('drawOn').addEventListener('change', applyDrawMode);
+  applyDrawMode();
 
   function setCell(s,f,v){
     if (state[s][f] === v) return;
