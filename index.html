@@ -48,6 +48,14 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);
   border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px}
 header h1{font-size:1.25rem;font-weight:800;margin:0;letter-spacing:-.01em;flex:1}
+.batt{display:flex;align-items:center;gap:5px;font-size:.9rem;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.batt[hidden]{display:none}
+.batt i{position:relative;width:20px;height:11px;border:1.5px solid currentColor;border-radius:3px;display:inline-block}
+.batt i::after{content:"";position:absolute;right:-4px;top:2.5px;width:2px;height:4px;background:currentColor;border-radius:0 1px 1px 0}
+.batt i b{position:absolute;left:1px;top:1px;bottom:1px;border-radius:1px;background:var(--ok)}
+.batt.low{color:var(--warn)}
+.batt.low i b{background:var(--warn)}
+@media (max-width:440px){header:has(.batt:not([hidden])) #statusText{display:none}}
 .status{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--muted)}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--line)}
 .status.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
@@ -131,6 +139,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
 <body>
 <header>
   <h1>Populele</h1>
+  <div class="batt" id="batt" hidden title="Baterie ukulele" aria-label="Baterie ukulele"><i><b id="battFill"></b></i><span id="battText">–</span></div>
   <div class="status" id="status"><span class="dot"></span><span id="statusText">Odpojeno</span></div>
   <button class="btn" id="connectBtn">Připojit</button>
 </header>
@@ -214,7 +223,9 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
       </label>
       <div class="hex" id="hex">—</div>
-      <p class="hint">Verze appky: 9</p>
+      <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
+      <div class="hex" id="rxhex" style="margin-top:4px">—</div>
+      <p class="hint">Verze appky: 10</p>
     </details>
   </div>
 </main>
@@ -369,7 +380,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
     const list = [];
     for (let i = 0xffa0; i <= 0xffaf; i++) list.push(i); // Populele: DC86 sits next to FFA3
     for (let i = 0xdc80; i <= 0xdc8f; i++) list.push(i);
-    list.push(0xfef5, 0xfff0, 0xffe0, 0xfee7, 0x1810, '0000dc86-0000-1000-8000-00805f9b34fb');
+    list.push(0xfef5, 0xfff0, 0xffe0, 0xfee7, 0x1810, 0x180f, '0000dc86-0000-1000-8000-00805f9b34fb');
     const custom = $('customSvc').value.trim().toLowerCase();
     if (custom) list.push(/^[0-9a-f]{4}$/.test(custom) ? parseInt(custom,16) : custom);
     return list;
@@ -410,6 +421,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       }
       setStatus(true, device.name || 'Připojeno');
       queueSend();
+      startBattery(server);
     } catch (err) {
       setStatus(false, 'Odpojeno');
       if (err.name === 'NotFoundError') return; // user cancelled the picker
@@ -420,7 +432,37 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       }
     }
   }
-  function onDisconnect(){ charac = null; setStatus(false, 'Odpojeno'); }
+  function onDisconnect(){ charac = null; setStatus(false, 'Odpojeno'); $('batt').hidden = true; }
+
+  // ----- Battery -----
+  // The Populele reports status on FFA3 (notify), next to the LED characteristic. In packets starting
+  // with 0x6F, byte 4 looks like the charge in percent (seen: 6F 12 04 00 54 … = 84 %).
+  // A standard Battery Service (0x180F) is used instead if the instrument has one.
+  function showBattery(pct){
+    if (!(pct >= 0 && pct <= 100)) return;
+    $('batt').hidden = false;
+    $('battText').textContent = pct + '\u00a0%';
+    $('battFill').style.width = `calc(${pct}% - 2px)`;
+    $('batt').classList.toggle('low', pct <= 20);
+  }
+  async function startBattery(server){
+    try {
+      const svc = await server.getPrimaryService(0x180f);
+      const ch = await svc.getCharacteristic(0x2a19);
+      showBattery((await ch.readValue()).getUint8(0));
+      try { await ch.startNotifications(); ch.addEventListener('characteristicvaluechanged', e => showBattery(e.target.value.getUint8(0))); } catch(e){}
+      return;
+    } catch(e){ /* no standard battery service */ }
+    try {
+      const st = await charac.service.getCharacteristic('0000ffa3-0000-1000-8000-00805f9b34fb');
+      st.addEventListener('characteristicvaluechanged', e => {
+        const v = new Uint8Array(e.target.value.buffer);
+        $('rxhex').textContent = Array.from(v, b => b.toString(16).padStart(2, '0')).join(' ');
+        if (v[0] === 0x6f && v.length > 4) showBattery(v[4]);
+      });
+      await st.startNotifications();
+    } catch(e){ /* no status characteristic: leave the battery hidden */ }
+  }
 
   $('connectBtn').onclick = () => {
     if (device && device.gatt && device.gatt.connected){ device.gatt.disconnect(); return; }
