@@ -1,5 +1,5 @@
 // Keeps the app working offline: app files from cache, network updates in the background.
-const CACHE = 'populele-v1';
+const CACHE = 'populele-v2';
 const APP = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(APP))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

@@ -787,15 +787,15 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       const glyphs = [];
       tc.items.forEach(it => {
         const size = Math.hypot(it.transform[2], it.transform[3]);
-        if (it.str.trim() && size > titleSize){ titleSize = size; title = it.str.trim(); }
-        if (!/^[0-9Xx]+$/.test(it.str.trim())) return;
+        if (/[A-Za-zÀ-ž]{2}/.test(it.str) && it.str.trim().length > 2 && size > titleSize){ titleSize = size; title = it.str.trim(); }
+        if (!/^[0-9Xx]+$/.test(it.str.trim()) && !/^[!-*]+$/.test(it.str.trim())) return; // [!-*] = digits in the old Guitar Pro 5 symbol font
         glyphs.push({ str: it.str.trim(), x: it.transform[4], y: it.transform[5], w: it.width, size, font: it.fontName });
       });
       glyphs.sort((a,b) => Math.abs(a.y-b.y) < 0.5 ? a.x - b.x : b.y - a.y);
       const tokens = [];
       glyphs.forEach(g => {
         const t = tokens[tokens.length-1];
-        if (t && t.font === g.font && Math.abs(t.y - g.y) < 0.5 && g.x - (t.x + t.w) < 1.2 && /^\d+$/.test(t.str + g.str)){ t.str += g.str; t.w = g.x + g.w - t.x; }
+        if (t && t.font === g.font && Math.abs(t.y - g.y) < 0.5 && g.x - (t.x + t.w) < 1.2 && (/^\d+$/.test(t.str + g.str) || /^[!-*]+$/.test(t.str + g.str))){ t.str += g.str; t.w = g.x + g.w - t.x; }
         else tokens.push({ ...g });
       });
       const cand = [];
@@ -805,12 +805,15 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
           if (cx < st.x1 - 5 || cx > st.x2 + 5) continue;
           let best = -1, bd = 1e9;
           st.ys.forEach((y, r) => { const d = Math.abs(cy - y); if (d < bd){ bd = d; best = r; } });
-          if (bd < 0.4 * st.s){ cand.push({ st, r: best, cx, str: t.str, font: t.font }); break; }
+          if (bd < 0.4 * st.s){ cand.push({ st, r: best, cx, str: t.str, font: t.font + '@' + t.size.toFixed(1) /* font + size: skips time signatures */ }); break; }
         }
       });
       const fc = {}; cand.forEach(c => fc[c.font] = (fc[c.font] || 0) + 1);
       const mainFont = Object.keys(fc).sort((a,b) => fc[b] - fc[a])[0];
-      cand.filter(c => c.font === mainFont && !/x/i.test(c.str)).forEach(c => c.st.notes.push(c));
+      cand.filter(c => c.font === mainFont && !/x/i.test(c.str)).forEach(c => {
+        if (/^[!-*]+$/.test(c.str)) c.str = String(+Array.from(c.str, ch => ch.charCodeAt(0) - 33).join(''));
+        c.st.notes.push(c);
+      });
       staves.forEach(st => { if (st.notes.length) allStaves.push(st); });
     }
     // --- columns -> steps ---
