@@ -124,6 +124,8 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
 .labels span.open{color:var(--led);text-shadow:0 0 8px var(--ledglow)}
 .stepinfo{margin-bottom:10px}
 .check{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:.92rem}
+input[type=checkbox]{accent-color:var(--led);width:18px;height:18px;margin:0}
+input[type=range]{accent-color:var(--led)}
 #tabPlay{min-width:110px}
 .tuner{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center;margin-bottom:10px}
 .tnote{font-size:2.6rem;font-weight:800;line-height:1}
@@ -165,6 +167,8 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <button class="btn ghost" id="allBtn">Rozsvítit vše</button>
       </div>
       <label class="check"><input type="checkbox" id="drawOn"> Kreslit po hmatníku</label>
+      <label class="check"><input type="checkbox" id="sound"> Hrát tóny (akordy, tab, ladění)</label>
+      <div class="speed"><span>Hlasitost</span><input type="range" id="volume" min="0" max="100" value="70" aria-label="Hlasitost tónů"><span id="volumeVal">70 %</span></div>
       <p class="hint">Se zapnutým kreslením ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou. Když je kreslení vypnuté, hmatník na dotyk nereaguje a stránka se přes něj dá normálně posouvat.</p>
     </section>
 
@@ -210,8 +214,6 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         </div>
         <div class="speed"><span>Tempo</span><input type="range" id="tempo" min="30" max="200" value="80" aria-label="Tempo"><span id="tempoVal">80</span></div>
         <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
-        <label class="check"><input type="checkbox" id="sound"> Hrát tóny</label>
-        <div class="speed"><span>Hlasitost</span><input type="range" id="volume" min="0" max="100" value="70" aria-label="Hlasitost tónů"><span id="volumeVal">70 %</span></div>
         <p class="hint">Šipky vlevo a vpravo (nebo pedál na otáčení stránek) posouvají po jednom kroku, mezerník spouští a zastavuje. Klepnutím na notu v tabu na ni skočíš. Prázdnou strunu ukulele rozsvítit neumí, takže se zvýrazní jen její písmeno nad hmatníkem.</p>
       </div>
     </section>
@@ -225,7 +227,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 11</p>
+      <p class="hint">Verze appky: 12</p>
     </details>
   </div>
 </main>
@@ -485,6 +487,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       state = STRINGS.map(() => new Array(FRETS).fill(false));
       CHORDS[name].forEach((fr,s) => { if (fr > 0) state[s][fr-1] = true; });
       render(); queueSend();
+      playNotes(CHORDS[name].map((fret, s) => ({ s, fret }))); // strum all four strings, open ones too
     };
     (ci < 8 ? $('chordsL') : $('chordsR')).appendChild(b); // basic chords left, sevenths and the rest right
   });
