@@ -6,8 +6,8 @@
 <title>Populele – ovládání LED</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#3B2A22">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192-orange.png">
+<link rel="apple-touch-icon" href="apple-touch-icon-orange.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
 :root{
   --bg:#E9EDEF; --surface:#FFFFFF; --ink:#1B2328; --muted:#5D6B73; --line:#C9D2D7;
   --wood:#3B2A22; --wood2:#4A352B; --fret:#B9C2C8; --nut:#F1EBDD;
-  --led:#5CC8FF; --ledglow:rgba(92,200,255,.55); --ledoff:#2A1E19;
+  --led:#FF9A3C; --ledglow:rgba(255,140,50,.55); --ledoff:#2A1E19;
   --ok:#1F8A4C; --warn:#B4532A;
   color-scheme:light;
 }
@@ -23,7 +23,7 @@
   :root:not([data-theme="light"]){
     --bg:#121619; --surface:#1C2226; --ink:#E6ECEF; --muted:#94A3AB; --line:#2E383E;
     --wood:#2A1D17; --wood2:#36261F; --fret:#7E888E; --nut:#CFC7B6;
-    --led:#6FD2FF; --ledglow:rgba(111,210,255,.6); --ledoff:#1D1410;
+    --led:#FFA54D; --ledglow:rgba(255,150,60,.6); --ledoff:#1D1410;
     --ok:#4CC27E; --warn:#E8875C;
     color-scheme:dark;
   }
@@ -31,7 +31,7 @@
 :root[data-theme="dark"]{
   --bg:#121619; --surface:#1C2226; --ink:#E6ECEF; --muted:#94A3AB; --line:#2E383E;
   --wood:#2A1D17; --wood2:#36261F; --fret:#7E888E; --nut:#CFC7B6;
-  --led:#6FD2FF; --ledglow:rgba(111,210,255,.6); --ledoff:#1D1410;
+  --led:#FFA54D; --ledglow:rgba(255,150,60,.6); --ledoff:#1D1410;
   --ok:#4CC27E; --warn:#E8875C;
   color-scheme:dark;
 }
@@ -119,7 +119,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
   padding:10px 12px;margin:12px 0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9rem;line-height:1.35}
 .tabview{max-height:45vh;overflow:auto;white-space:pre}
 .tabview .c{cursor:pointer;border-radius:3px}
-.tabview .c.cur{background:var(--led);color:#06222F}
+.tabview .c.cur{background:var(--led);color:#2A1406}
 .labels span{transition:color .1s}
 .labels span.open{color:var(--led);text-shadow:0 0 8px var(--ledglow)}
 .stepinfo{margin-bottom:10px}
@@ -225,7 +225,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 10</p>
+      <p class="hint">Verze appky: 11</p>
     </details>
   </div>
 </main>
