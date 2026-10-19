@@ -65,7 +65,17 @@ header h1{font-size:1.25rem;font-weight:800;margin:0;letter-spacing:-.01em;flex:
 .btn:disabled{opacity:.4;cursor:default}
 
 main{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:20px}
-@media (min-width:820px){main{grid-template-columns:auto 1fr;align-items:start}}
+@media (min-width:820px){main{grid-template-columns:auto 1fr;align-items:start}
+  .neckwrap{grid-column:1;grid-row:2}.soundbar{grid-column:1;grid-row:3}.side{grid-column:2;grid-row:2 / span 3}
+  main{grid-template-rows:auto auto auto 1fr}}
+/* Sound on/off and volume, always visible right under the fretboard */
+.soundbar{justify-self:center;width:100%;max-width:420px;display:flex;align-items:center;gap:16px;
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 14px}
+.soundbar .check{margin:0;white-space:nowrap}
+.soundbar .speed{margin:0;flex:1;min-width:0;gap:8px}
+.soundbar .speed input{min-width:0;width:100%}
+main{grid-template-columns:minmax(0,1fr)}
+@media (min-width:820px){main{grid-template-columns:auto 1fr}}
 
 .msg{border-radius:12px;padding:12px 14px;background:var(--surface);border-left:4px solid var(--warn);font-size:.95rem}
 .msg[hidden]{display:none}
@@ -162,6 +172,11 @@ input[type=range]{accent-color:var(--led)}
     <div class="chordcol right" id="chordsR" aria-label="Další akordy"></div>
   </div>
 
+  <div class="soundbar">
+    <label class="check"><input type="checkbox" id="sound"> Hrát tóny</label>
+    <div class="speed"><span>Hlasitost</span><input type="range" id="volume" min="0" max="100" value="70" aria-label="Hlasitost tónů"><span id="volumeVal">70 %</span></div>
+  </div>
+
   <div class="side">
     <details class="sec" data-key="kresleni" open>
       <summary><h2>Kreslení</h2></summary>
@@ -170,8 +185,6 @@ input[type=range]{accent-color:var(--led)}
         <button class="btn ghost" id="allBtn" aria-pressed="false">Rozsvítit vše</button>
       </div>
       <label class="check"><input type="checkbox" id="drawOn"> Kreslit po hmatníku</label>
-      <label class="check"><input type="checkbox" id="sound"> Hrát tóny (akordy, tab, ladění)</label>
-      <div class="speed"><span>Hlasitost</span><input type="range" id="volume" min="0" max="100" value="70" aria-label="Hlasitost tónů"><span id="volumeVal">70 %</span></div>
       <p class="hint">Se zapnutým kreslením ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou. Když je kreslení vypnuté, hmatník na dotyk nereaguje a stránka se přes něj dá normálně posouvat.</p>
     </details>
 
@@ -230,7 +243,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 15</p>
+      <p class="hint">Verze appky: 16</p>
     </details>
   </div>
 </main>
