@@ -200,6 +200,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <div class="speed"><span>Tempo</span><input type="range" id="tempo" min="30" max="200" value="80" aria-label="Tempo"><span id="tempoVal">80</span></div>
         <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
         <label class="check"><input type="checkbox" id="sound"> Hrát tóny</label>
+        <div class="speed"><span>Hlasitost</span><input type="range" id="volume" min="0" max="100" value="70" aria-label="Hlasitost tónů"><span id="volumeVal">70 %</span></div>
         <p class="hint">Šipky vlevo a vpravo (nebo pedál na otáčení stránek) posouvají po jednom kroku, mezerník spouští a zastavuje. Klepnutím na notu v tabu na ni skočíš. Prázdnou strunu ukulele rozsvítit neumí, takže se zvýrazní jen její písmeno nad hmatníkem.</p>
       </div>
     </section>
@@ -211,7 +212,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
         <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
       </label>
       <div class="hex" id="hex">—</div>
-      <p class="hint">Verze appky: 7</p>
+      <p class="hint">Verze appky: 8</p>
     </details>
   </div>
 </main>
@@ -622,7 +623,7 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       actx = new AC();
-      master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination);
+      master = actx.createGain(); master.gain.value = volumeGain(); master.connect(actx.destination);
     }
     if (actx.state === 'suspended') actx.resume();
     return actx;
@@ -1070,6 +1071,15 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
   $('tabPlay').onclick = () => tabPlaying ? pauseTab() : playTab();
   $('tempo').addEventListener('input', e => $('tempoVal').textContent = e.target.value);
   $('sound').checked = store.get('sound') !== '0';
+  // Volume: squared slider value feels even to the ear; 70 % matches the old fixed level
+  function volumeGain(){ const v = +$('volume').value / 100; return v * v; }
+  $('volume').value = store.get('vol') || 70;
+  $('volumeVal').textContent = $('volume').value + '\u00a0%';
+  $('volume').addEventListener('input', e => {
+    $('volumeVal').textContent = e.target.value + '\u00a0%';
+    store.set('vol', e.target.value);
+    if (master) master.gain.setTargetAtTime(volumeGain(), actx.currentTime, 0.02);
+  });
   $('sound').addEventListener('change', e => { store.set('sound', e.target.checked ? '1' : '0'); if (e.target.checked) audio(); });
   document.addEventListener('keydown', e => {
     if (!tab) return;
