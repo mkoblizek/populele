@@ -103,7 +103,8 @@ section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
 .row{display:flex;flex-wrap:wrap;gap:8px}
 .chip{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;
   min-width:52px;font-weight:600;cursor:pointer}
-.chip[aria-pressed="true"]{border-color:var(--led);box-shadow:0 0 0 2px var(--ledglow) inset}
+.chip[aria-pressed="true"],.btn.ghost[aria-pressed="true"]{border-color:var(--led);box-shadow:0 0 0 2px var(--ledglow) inset}
+.chip:active,.btn.ghost:active{border-color:var(--led)}
 .speed{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:.9rem}
 .speed input{flex:1;accent-color:var(--led)}
 details{background:var(--surface);border-radius:12px;padding:12px 14px;border:1px solid var(--line)}
@@ -163,8 +164,8 @@ input[type=range]{accent-color:var(--led)}
     <section>
       <h2>Kreslení</h2>
       <div class="row">
-        <button class="btn ghost" id="clearBtn">Zhasnout vše</button>
-        <button class="btn ghost" id="allBtn">Rozsvítit vše</button>
+        <button class="btn ghost" id="clearBtn" aria-pressed="false">Zhasnout vše</button>
+        <button class="btn ghost" id="allBtn" aria-pressed="false">Rozsvítit vše</button>
       </div>
       <label class="check"><input type="checkbox" id="drawOn"> Kreslit po hmatníku</label>
       <label class="check"><input type="checkbox" id="sound"> Hrát tóny (akordy, tab, ladění)</label>
@@ -227,7 +228,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 13</p>
+      <p class="hint">Verze appky: 14</p>
     </details>
   </div>
 </main>
@@ -330,8 +331,8 @@ input[type=range]{accent-color:var(--led)}
   }
   function setAll(v){ state = STRINGS.map(() => new Array(FRETS).fill(v)); render(); queueSend(); }
 
-  $('clearBtn').onclick = () => { stopAnim(); clearChordSel(); setAll(false); };
-  $('allBtn').onclick = () => { stopAnim(); clearChordSel(); setAll(true); };
+  $('clearBtn').onclick = () => { stopAnim(); clearChordSel(); setAll(false); $('clearBtn').setAttribute('aria-pressed','true'); };
+  $('allBtn').onclick = () => { stopAnim(); clearChordSel(); setAll(true); $('allBtn').setAttribute('aria-pressed','true'); };
 
   // ----- Packet encoding (per Hackulele reverse-engineering) -----
   function stringBytes(arr){
@@ -491,7 +492,11 @@ input[type=range]{accent-color:var(--led)}
     };
     (ci < 8 ? $('chordsL') : $('chordsR')).appendChild(b); // basic chords left, sevenths and the rest right
   });
-  function clearChordSel(){ chordsEl.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed','false')); }
+  // Any new board content deselects chords and the fill buttons
+  function clearChordSel(){
+    chordsEl.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed','false'));
+    ['clearBtn','allBtn'].forEach(id => $(id).setAttribute('aria-pressed','false'));
+  }
 
   // ----- Animations -----
   const blank = () => STRINGS.map(() => new Array(FRETS).fill(false));
