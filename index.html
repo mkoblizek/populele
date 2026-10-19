@@ -98,7 +98,7 @@ main{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:20px}
 .board .marker{position:absolute;right:-16px;width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.6}
 @media (prefers-reduced-motion:reduce){.cell span{transition:none}}
 
-.side{display:grid;gap:22px}
+.side{display:grid;gap:14px}
 section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
 .row{display:flex;flex-wrap:wrap;gap:8px}
 .chip{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;
@@ -109,6 +109,8 @@ section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
 .speed input{flex:1;accent-color:var(--led)}
 details{background:var(--surface);border-radius:12px;padding:12px 14px;border:1px solid var(--line)}
 summary{cursor:pointer;font-weight:600}
+summary h2{display:inline;margin:0;font-size:1.05rem;font-weight:800}
+details[open] > summary{margin-bottom:12px}
 details label{display:block;margin-top:12px;font-size:.92rem}
 details input[type=text]{width:100%;margin-top:4px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
 .hex{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;overflow-x:auto;white-space:nowrap;
@@ -161,8 +163,8 @@ input[type=range]{accent-color:var(--led)}
   </div>
 
   <div class="side">
-    <section>
-      <h2>Kreslení</h2>
+    <details class="sec" data-key="kresleni" open>
+      <summary><h2>Kreslení</h2></summary>
       <div class="row">
         <button class="btn ghost" id="clearBtn" aria-pressed="false">Zhasnout vše</button>
         <button class="btn ghost" id="allBtn" aria-pressed="false">Rozsvítit vše</button>
@@ -171,17 +173,17 @@ input[type=range]{accent-color:var(--led)}
       <label class="check"><input type="checkbox" id="sound"> Hrát tóny (akordy, tab, ladění)</label>
       <div class="speed"><span>Hlasitost</span><input type="range" id="volume" min="0" max="100" value="70" aria-label="Hlasitost tónů"><span id="volumeVal">70 %</span></div>
       <p class="hint">Se zapnutým kreslením ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou. Když je kreslení vypnuté, hmatník na dotyk nereaguje a stránka se přes něj dá normálně posouvat.</p>
-    </section>
+    </details>
 
-    <section>
-      <h2>Animace</h2>
+    <details class="sec" data-key="animace" open>
+      <summary><h2>Animace</h2></summary>
       <div class="row" id="anims"></div>
       <div class="speed"><span>Pomalu</span><input type="range" id="speed" min="80" max="600" value="180" aria-label="Rychlost animace"><span>Rychle</span></div>
       <p class="hint">Víc než asi 8 snímků za sekundu umí Bluetooth v ukulele rozhodit, proto je rychlost omezená.</p>
-    </section>
+    </details>
 
-    <section>
-      <h2>Ladička</h2>
+    <details class="sec" data-key="ladicka" open>
+      <summary><h2>Ladička</h2></summary>
       <div class="tuner" aria-live="polite">
         <div class="tnote" id="tNote">–</div>
         <div class="tmeter"><div class="tneedle" id="tNeedle"></div></div>
@@ -193,10 +195,10 @@ input[type=range]{accent-color:var(--led)}
       <div class="row" style="margin-top:10px" id="refTones"></div>
       <label class="check"><input type="checkbox" id="tunerLed" checked> Ukazovat ladění na LEDkách</label>
       <p class="hint">Na struně se rozsvítí jedna LEDka: u pražců blíž hlavě znamená podladěno, dál směrem k ozvučnici přeladěno. Když struna ladí, rozsvítí se celá.</p>
-    </section>
+    </details>
 
-    <section>
-      <h2>Hraní podle tabu</h2>
+    <details class="sec" data-key="tab" open>
+      <summary><h2>Hraní podle tabu</h2></summary>
       <textarea id="tabText" rows="7" placeholder="Sem vlož tab zkopírovaný z ukulelehunt.com (řádky A|--, E|--, C|--, G|--)" spellcheck="false" autocomplete="off"></textarea>
       <div class="row" style="margin-top:8px">
         <button class="btn ghost" id="tabLoad">Načíst tab</button>
@@ -217,10 +219,10 @@ input[type=range]{accent-color:var(--led)}
         <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
         <p class="hint">Šipky vlevo a vpravo (nebo pedál na otáčení stránek) posouvají po jednom kroku, mezerník spouští a zastavuje. Klepnutím na notu v tabu na ni skočíš. Prázdnou strunu ukulele rozsvítit neumí, takže se zvýrazní jen její písmeno nad hmatníkem.</p>
       </div>
-    </section>
+    </details>
 
     <details>
-      <summary>Nastavení a ladění</summary>
+      <summary><h2>Nastavení a ladění</h2></summary>
       <label><input type="checkbox" id="flip"> Otočit směr pražců (když se LEDky rozsvěcí od špatného konce)</label>
       <label>Vlastní UUID služby (pokud se připojení nenajde)
         <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
@@ -228,7 +230,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 14</p>
+      <p class="hint">Verze appky: 15</p>
     </details>
   </div>
 </main>
@@ -1114,6 +1116,12 @@ input[type=range]{accent-color:var(--led)}
     $('refTones').appendChild(b);
   });
 
+  // Collapsible sections remember whether they are open; settings always start collapsed
+  document.querySelectorAll('details.sec').forEach(d => {
+    const k = 'sec:' + d.dataset.key;
+    if (store.get(k) === '0') d.open = false;
+    d.addEventListener('toggle', () => store.set(k, d.open ? '1' : '0'));
+  });
   $('tabText').value = store.get('tab') || '';
   $('tabLoad').onclick = loadTab;
   $('tabSample').onclick = () => { $('tabText').value = SAMPLE; loadTab(); };
