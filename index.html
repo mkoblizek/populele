@@ -256,7 +256,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 19</p>
+      <p class="hint">Verze appky: 20</p>
     </details>
   </div>
 </main>
@@ -720,7 +720,7 @@ input[type=range]{accent-color:var(--led)}
       blinkTimer = setTimeout(apply, MIN_INTERVAL + 20);
     } else apply();
 
-    if (!(tabPlaying && $('listen').checked)) playNotes(st.notes); // listening: the mic must hear the player, not us
+    if (!quietLoad && !(tabPlaying && $('listen').checked)) playNotes(st.notes); // listening: the mic must hear the player, not us
     $('tabStep').textContent = `Krok ${tabPos + 1} z ${tab.steps.length}:`;
     const names = st.notes.slice().sort((a,b) => b.s - a.s)
       .map(n => STRINGS[n.s] + n.fret + (n.fret === 0 ? ' (prázdná)' : ''));
@@ -1344,6 +1344,10 @@ input[type=range]{accent-color:var(--led)}
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp'){ e.preventDefault(); go(-1); }
     else if (e.key === ' ' && !(t.matches && t.matches('button'))){ e.preventDefault(); tabPlaying ? pauseTab() : playTab(); }
   });
+
+  // A tab left in the box from last time is loaded right away (silently, no sound before the first tap)
+  var quietLoad = false;
+  if ($('tabText').value.trim()){ quietLoad = true; try { loadTab(); } finally { quietLoad = false; } }
 
   render(); queueSend();
   if (!navigator.bluetooth){
