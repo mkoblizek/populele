@@ -248,7 +248,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 17</p>
+      <p class="hint">Verze appky: 18</p>
     </details>
   </div>
 </main>
@@ -1045,7 +1045,9 @@ input[type=range]{accent-color:var(--led)}
         $('tabMsg').textContent = 'V PDF jsem nenašel tabulaturu se čtyřmi linkami a čísly pražců. Pokud jde čísla v PDF označit myší, pošli soubor k úpravě importu; naskenované PDF takhle načíst nejde.';
         return;
       }
-      $('tabText').value = res.text;
+      // no readable title (e.g. text drawn as outlines): use the file name, „DuelingBanjos.pdf“ → „Dueling Banjos“
+      if (!res.title) res.title = file.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').replace(/([a-zà-ž])([A-ZÀ-Ž])/g, '$1 $2').trim();
+      $('tabText').value = res.text.startsWith(res.title) ? res.text : res.title + '\n\n' + res.text;
       loadTab();
       if (tab) $('tabMsg').textContent = `Z PDF „${res.title || file.name}“ načteno ${res.staves} řádků tabu a ${tab.steps.length} kroků. Repetice se přehrávají jen jednou.`;
     } catch (err) {
