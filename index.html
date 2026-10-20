@@ -128,6 +128,8 @@ details.sec > summary{position:relative;padding-right:44px}
 .grip:hover,.grip:focus-visible{color:var(--led)}
 details.sec.dragging{position:relative;z-index:5;border-color:var(--led);box-shadow:0 8px 24px rgba(0,0,0,.35);cursor:grabbing}
 details.sec.dragging .grip{cursor:grabbing;color:var(--led)}
+.side.locked .grip{display:none}
+.side.locked details.sec > summary{padding-right:0}
 details[open] > summary{margin-bottom:12px}
 details label{display:block;margin-top:12px;font-size:.92rem}
 details input[type=text]{width:100%;margin-top:4px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
@@ -250,13 +252,14 @@ input[type=range]{accent-color:var(--led)}
     <details>
       <summary><h2>Nastavení a ladění</h2></summary>
       <label><input type="checkbox" id="flip"> Otočit směr pražců (když se LEDky rozsvěcí od špatného konce)</label>
+      <label><input type="checkbox" id="lockOrder"> Zamknout pořadí panelů (po odemčení jdou panely přesouvat tažením za úchyt ⠿)</label>
       <label>Vlastní UUID služby (pokud se připojení nenajde)
         <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
       </label>
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 21</p>
+      <p class="hint">Verze appky: 22</p>
     </details>
   </div>
 </main>
@@ -1293,6 +1296,12 @@ input[type=range]{accent-color:var(--led)}
       g.addEventListener('pointerup', end);
       g.addEventListener('pointercancel', end);
     });
+    // Reordering is locked by default (Settings); locked = no grips
+    const lk = $('lockOrder');
+    lk.checked = store.get('lockOrder') !== '0';
+    const applyLock = () => side.classList.toggle('locked', lk.checked);
+    lk.addEventListener('change', () => { store.set('lockOrder', lk.checked ? '1' : '0'); applyLock(); });
+    applyLock();
   })();
   $('tabText').value = store.get('tab') || '';
   $('tabLoad').onclick = loadTab;
