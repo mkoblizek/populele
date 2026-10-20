@@ -120,6 +120,14 @@ section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
 details{background:var(--surface);border-radius:12px;padding:12px 14px;border:1px solid var(--line)}
 summary{cursor:pointer;font-weight:600}
 summary h2{display:inline;margin:0;font-size:1.05rem;font-weight:800}
+/* drag handle for reordering panels */
+details.sec > summary{position:relative;padding-right:44px}
+.grip{position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;
+  color:var(--muted);cursor:grab;touch-action:none;border-radius:8px}
+.grip svg{width:18px;height:18px;fill:currentColor}
+.grip:hover,.grip:focus-visible{color:var(--led)}
+details.sec.dragging{position:relative;z-index:5;border-color:var(--led);box-shadow:0 8px 24px rgba(0,0,0,.35);cursor:grabbing}
+details.sec.dragging .grip{cursor:grabbing;color:var(--led)}
 details[open] > summary{margin-bottom:12px}
 details label{display:block;margin-top:12px;font-size:.92rem}
 details input[type=text]{width:100%;margin-top:4px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
@@ -248,7 +256,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 18</p>
+      <p class="hint">Verze appky: 19</p>
     </details>
   </div>
 </main>
@@ -1228,6 +1236,64 @@ input[type=range]{accent-color:var(--led)}
     if (store.get(k) === '0') d.open = false;
     d.addEventListener('toggle', () => store.set(k, d.open ? '1' : '0'));
   });
+
+  // Panels can be reordered by dragging their grip (mouse or touch) or with arrow keys on it;
+  // the order is remembered. Settings always stay last.
+  (() => {
+    const side = document.querySelector('.side');
+    const settings = side.querySelector('details:not(.sec)');
+    const secs = () => [...side.querySelectorAll('details.sec')];
+    const save = () => store.set('secOrder', secs().map(d => d.dataset.key).join(','));
+    (store.get('secOrder') || '').split(',').forEach(k => {
+      const d = side.querySelector(`details.sec[data-key="${k}"]`);
+      if (d) side.insertBefore(d, settings);
+    });
+    const GRIP = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.8"/><circle cx="15" cy="6" r="1.8"/><circle cx="9" cy="12" r="1.8"/><circle cx="15" cy="12" r="1.8"/><circle cx="9" cy="18" r="1.8"/><circle cx="15" cy="18" r="1.8"/></svg>';
+    let drag = null;
+    secs().forEach(d => {
+      const g = document.createElement('span');
+      g.className = 'grip'; g.tabIndex = 0; g.setAttribute('role', 'button');
+      g.setAttribute('aria-label', 'Přesunout panel: táhni, nebo šipkou nahoru a dolů');
+      g.title = 'Přesunout panel';
+      g.innerHTML = GRIP;
+      d.querySelector('summary').appendChild(g);
+      g.addEventListener('click', e => e.preventDefault()); // the grip must not open or close the panel
+      g.addEventListener('keydown', e => {
+        const list = secs(), i = list.indexOf(d);
+        if (e.key === 'ArrowUp' && i > 0){ side.insertBefore(d, list[i - 1]); }
+        else if (e.key === 'ArrowDown' && i < list.length - 1){ side.insertBefore(list[i + 1], d); }
+        else if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); return; }
+        else return;
+        e.preventDefault(); save(); g.focus();
+      });
+      g.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        g.setPointerCapture(e.pointerId);
+        drag = { d, startY: e.clientY + scrollY };
+        d.classList.add('dragging');
+      });
+      g.addEventListener('pointermove', e => {
+        if (!drag || drag.d !== d) return;
+        // keep the page scrolling when dragging near the screen edge
+        if (e.clientY < 70) scrollBy(0, -12); else if (e.clientY > innerHeight - 70) scrollBy(0, 12);
+        const y = e.clientY + scrollY;
+        const list = secs(), i = list.indexOf(d);
+        const move = (fn) => { const before = d.offsetTop; fn(); drag.startY += d.offsetTop - before; };
+        const next = list[i + 1], prev = list[i - 1];
+        const mid = el => el.offsetTop + el.offsetHeight / 2 + side.getBoundingClientRect().top + scrollY - side.offsetTop;
+        if (next && y > mid(next)) move(() => side.insertBefore(next, d));
+        else if (prev && y < mid(prev)) move(() => side.insertBefore(d, prev));
+        d.style.transform = `translateY(${y - drag.startY}px)`;
+      });
+      const end = () => {
+        if (!drag || drag.d !== d) return;
+        d.style.transform = ''; d.classList.remove('dragging');
+        drag = null; save();
+      };
+      g.addEventListener('pointerup', end);
+      g.addEventListener('pointercancel', end);
+    });
+  })();
   $('tabText').value = store.get('tab') || '';
   $('tabLoad').onclick = loadTab;
   $('tabSample').onclick = () => { $('tabText').value = SAMPLE; loadTab(); };
