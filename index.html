@@ -123,7 +123,7 @@ section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
 .speed input{flex:1;accent-color:var(--led)}
 details{background:var(--surface);border-radius:12px;padding:12px 14px;border:1px solid var(--line)}
 summary{cursor:pointer;font-weight:600}
-summary h2{display:inline;margin:0;font-size:1.05rem;font-weight:800}
+summary h2{display:inline;margin:0 0 0 .45em;font-size:1.05rem;font-weight:800} /* gap after the disclosure triangle */
 /* drag handle for reordering panels */
 details.sec > summary{position:relative;padding-right:44px}
 .grip{position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;
@@ -164,6 +164,9 @@ input[type=range]{accent-color:var(--led)}
 .tneedle{position:absolute;left:50%;top:2px;width:4px;height:24px;margin-left:-2px;border-radius:2px;background:var(--ink);transition:transform .12s}
 .tneedle.ok{background:var(--ok)}
 .tinfo{color:var(--muted);font-size:.92rem}
+/* reference tones: always four in one row, sharing the width */
+#refTones{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+#refTones .chip{min-width:0;width:100%;padding:8px 0;text-align:center}
 @media (prefers-reduced-motion:reduce){.tneedle{transition:none}}
 </style>
 </head>
@@ -263,7 +266,7 @@ input[type=range]{accent-color:var(--led)}
       <div class="hex" id="hex">—</div>
       <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele:</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 23</p>
+      <p class="hint">Verze appky: 25</p>
     </details>
   </div>
 </main>
