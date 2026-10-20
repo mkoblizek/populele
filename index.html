@@ -84,6 +84,8 @@ main{grid-template-columns:minmax(0,1fr)}
 /* Fretboard: strings are columns, frets are rows — like a chord chart */
 :root{--col:58px;--chordcol:64px}
 @media (max-width:440px){:root{--col:48px;--chordcol:54px} main{padding:12px 10px}}
+@media (max-width:380px){:root{--col:44px;--chordcol:50px} .chordcol.left{padding-right:22px!important} .chordcol.right{padding-left:16px!important}
+  .neckwrap{grid-template-columns:calc(var(--chordcol) + 22px) auto calc(var(--chordcol) + 16px)!important}}
 .neckwrap{justify-self:center;display:grid;grid-template-columns:calc(var(--chordcol) + 26px) auto calc(var(--chordcol) + 20px)}
 .chordcol{display:flex;flex-direction:column;justify-content:space-around;gap:8px;padding:48px 0 16px}
 .chordcol.left{padding-right:26px}
@@ -108,7 +110,9 @@ main{grid-template-columns:minmax(0,1fr)}
 .board .marker{position:absolute;right:-16px;width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.6}
 @media (prefers-reduced-motion:reduce){.cell span{transition:none}}
 
-.side{display:grid;gap:14px}
+.side{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
+.side > *{min-width:0}
+details input[type=text]{min-width:0;max-width:100%}
 section h2{font-size:1.05rem;font-weight:800;margin:0 0 10px}
 .row{display:flex;flex-wrap:wrap;gap:8px}
 .chip{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;
@@ -131,9 +135,9 @@ details.sec.dragging .grip{cursor:grabbing;color:var(--led)}
 .side.locked .grip{display:none}
 .side.locked details.sec > summary{padding-right:0}
 details[open] > summary{margin-bottom:12px}
-details label{display:block;margin-top:12px;font-size:.92rem}
+details label{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:.92rem}
 details input[type=text]{width:100%;margin-top:4px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
-.hex{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;overflow-x:auto;white-space:nowrap;
+.hex{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;white-space:normal;overflow-wrap:anywhere;
   background:var(--bg);padding:8px;border-radius:8px;margin-top:12px;color:var(--muted)}
 .hint{color:var(--muted);font-size:.9rem;margin:6px 0 0}
 textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;padding:10px;border-radius:10px;
@@ -197,14 +201,14 @@ input[type=range]{accent-color:var(--led)}
         <button class="btn ghost" id="allBtn" aria-pressed="false">Rozsvítit vše</button>
       </div>
       <label class="check"><input type="checkbox" id="drawOn"> Kreslit po hmatníku</label>
-      <p class="hint">Se zapnutým kreslením ťukni na pražec a LEDka se přepne. Tahem prstu kreslíš víc najednou. Když je kreslení vypnuté, hmatník na dotyk nereaguje a stránka se přes něj dá normálně posouvat.</p>
+      <p class="hint">Ťuknutí přepne LEDku, tahem kreslíš víc najednou. Vypnuté kreslení nechá stránku posouvat.</p>
     </details>
 
     <details class="sec" data-key="animace" open>
       <summary><h2>Animace</h2></summary>
       <div class="row" id="anims"></div>
       <div class="speed"><span>Pomalu</span><input type="range" id="speed" min="80" max="600" value="180" aria-label="Rychlost animace"><span>Rychle</span></div>
-      <p class="hint">Víc než asi 8 snímků za sekundu umí Bluetooth v ukulele rozhodit, proto je rychlost omezená.</p>
+      <p class="hint">Rychlost je omezená, rychlejší animace Bluetooth v ukulele nezvládá.</p>
     </details>
 
     <details class="sec" data-key="ladicka" open>
@@ -219,7 +223,7 @@ input[type=range]{accent-color:var(--led)}
       </div>
       <div class="row" style="margin-top:10px" id="refTones"></div>
       <label class="check"><input type="checkbox" id="tunerLed" checked> Ukazovat ladění na LEDkách</label>
-      <p class="hint">Na struně se rozsvítí jedna LEDka: u pražců blíž hlavě znamená podladěno, dál směrem k ozvučnici přeladěno. Když struna ladí, rozsvítí se celá.</p>
+      <p class="hint">LEDka blíž hlavě: podladěno, dál: přeladěno. Celá struna svítí: ladí.</p>
     </details>
 
     <details class="sec" data-key="tab" open>
@@ -244,22 +248,22 @@ input[type=range]{accent-color:var(--led)}
         </div>
         <div class="speed"><span>Tempo</span><input type="range" id="tempo" min="30" max="200" value="80" aria-label="Tempo"><span id="tempoVal">80</span></div>
         <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
-        <label class="check"><input type="checkbox" id="listen"> Posouvat podle zahraných not (mikrofon)</label>
-        <p class="hint">S volbou „Posouvat podle zahraných not“ appka po spuštění poslouchá mikrofonem a další krok ukáže, až zahraješ ten aktuální, takže se obrazovky nemusíš dotýkat. Šipky, Home a End na klávesnici nebo bluetooth pedál na otáčení stránek krokují taky, mezerník spouští a zastavuje. Klepnutím na notu v tabu na ni skočíš. Prázdnou strunu ukulele rozsvítit neumí, takže se zvýrazní jen její písmeno nad hmatníkem.</p>
+        <label class="check"><input type="checkbox" id="listen"> Posouvat podle hraní (mikrofon)</label>
+        <p class="hint">S mikrofonem přijde další krok, až zahraješ ten aktuální. Krokovat jde i šipkami, Home/End nebo pedálem, mezerník spouští. Ťuknutím na notu v tabu na ni skočíš. Prázdná struna svítí jen písmenem nad hmatníkem.</p>
       </div>
     </details>
 
     <details>
       <summary><h2>Nastavení a ladění</h2></summary>
-      <label><input type="checkbox" id="flip"> Otočit směr pražců (když se LEDky rozsvěcí od špatného konce)</label>
-      <label><input type="checkbox" id="lockOrder"> Zamknout pořadí panelů (po odemčení jdou panely přesouvat tažením za úchyt ⠿)</label>
-      <label>Vlastní UUID služby (pokud se připojení nenajde)
-        <input type="text" id="customSvc" placeholder="např. 0000xxxx-0000-1000-8000-00805f9b34fb" autocomplete="off" spellcheck="false">
+      <label><input type="checkbox" id="lockOrder"> Zamknout pořadí panelů</label>
+      <label><input type="checkbox" id="flip"> Otočit směr pražců</label>
+      <label>Vlastní UUID služby
+        <input type="text" id="customSvc" placeholder="např. ffa0 nebo celé UUID" autocomplete="off" spellcheck="false">
       </label>
       <div class="hex" id="hex">—</div>
-      <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele (charakteristika FFA3):</p>
+      <p class="hint" style="margin-top:12px">Poslední zpráva z ukulele:</p>
       <div class="hex" id="rxhex" style="margin-top:4px">—</div>
-      <p class="hint">Verze appky: 22</p>
+      <p class="hint">Verze appky: 23</p>
     </details>
   </div>
 </main>
