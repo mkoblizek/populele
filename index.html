@@ -157,6 +157,16 @@ textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:
 .check{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:.92rem}
 input[type=checkbox]{accent-color:var(--led);width:18px;height:18px;margin:0}
 input[type=range]{accent-color:var(--led)}
+.lib{display:flex;gap:8px;margin-bottom:10px}
+.lib select,#rate{flex:1;min-width:0;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+#rate{flex:0 0 auto}
+.video{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
+.video h3{font-size:.95rem;margin:0 0 8px}
+.video input[type=url]{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;margin-bottom:10px}
+.ytbox{position:relative;aspect-ratio:16/9;margin-bottom:10px;border-radius:10px;overflow:hidden;background:#000}
+.ytbox iframe,.ytbox > div{position:absolute;inset:0;width:100%;height:100%;border:0}
+.btn.rec{border-color:var(--warn);color:var(--warn)}
+.btn:disabled{opacity:.4}
 .transport{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
 .transport .btn{padding:12px 0;display:grid;place-items:center;min-width:0}
 .transport svg{width:22px;height:22px;fill:currentColor}
@@ -235,11 +245,14 @@ input[type=range]{accent-color:var(--led)}
 
     <details class="sec" data-key="tab" open>
       <summary><h2>Hraní podle tabu</h2></summary>
+      <div class="lib">
+        <select id="libSel" aria-label="Uložené taby"></select>
+        <button class="btn ghost" id="libDel">Smazat</button>
+      </div>
       <textarea id="tabText" rows="1" placeholder="Sem vlož textový tab nebo načti PDF" spellcheck="false" autocomplete="off"></textarea>
       <div class="row" style="margin-top:8px">
         <button class="btn ghost" id="tabLoad">Načíst tab</button>
         <button class="btn ghost" id="tabPdf">Načíst PDF</button>
-        <button class="btn ghost" id="tabSample">Vložit ukázku</button>
         <input type="file" id="pdfFile" accept="application/pdf,.pdf" hidden>
       </div>
       <p class="hint" id="tabMsg"></p>
@@ -256,6 +269,18 @@ input[type=range]{accent-color:var(--led)}
         <div class="speed"><span>Tempo</span><input type="range" id="tempo" min="30" max="200" value="80" aria-label="Tempo"><span id="tempoVal">80</span></div>
         <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
         <label class="check"><input type="checkbox" id="listen"> Posouvat podle hraní (mikrofon)</label>
+        <div class="video">
+          <h3>Rytmus podle videa</h3>
+          <input type="url" id="ytUrl" placeholder="Odkaz na video z YouTube" autocomplete="off">
+          <div class="ytbox" id="ytBox" hidden><div id="ytPlayer"></div></div>
+          <div class="row">
+            <button class="btn ghost" id="recBtn">Nahrát časování</button>
+            <button class="btn ghost" id="syncBtn" aria-pressed="false">Hrát s videem</button>
+          </div>
+          <div class="speed"><span>Rychlost</span><select id="rate" aria-label="Rychlost přehrávání">
+            <option value="0.5">0,5×</option><option value="0.75">0,75×</option><option value="1" selected>1×</option></select></div>
+          <p class="hint" id="timeInfo"></p>
+        </div>
         <p class="hint">S mikrofonem přijde další krok, až zahraješ ten aktuální. Krokovat jde i šipkami, Home/End nebo pedálem, mezerník spouští. Ťuknutím na notu v tabu na ni skočíš. Prázdná struna svítí jen písmenem nad hmatníkem.</p>
       </div>
     </details>
@@ -588,15 +613,10 @@ input[type=range]{accent-color:var(--led)}
     anim = null; clearTimeout(animTimer);
     animsEl.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed','false'));
   }
-  function stopAnim(){ haltAnim(); pauseTab(); setOpen([]); stopTuner(); }
+  function stopAnim(){ haltAnim(); pauseTab(); setOpen([]); stopTuner(); stopRec(true); stopSync(); }
 
   // ----- Tabs -----
   const TAB_ORDER = { G:0, C:1, E:2, A:3 };
-  const SAMPLE = 'Óda na radost (L. van Beethoven)\n' +
-    'A|---------|---------|---------|---------|\n' +
-    'E|-0-0-1-3-|-3-1-0---|-------0-|-0-------|\n' +
-    'C|---------|-------2-|-0-0-2---|-----2-2-|\n' +
-    'G|---------|---------|---------|---------|';
   let tab = null, tabPos = -1, tabPlaying = false, tabTimer = null, blinkTimer = null;
   const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -734,7 +754,7 @@ input[type=range]{accent-color:var(--led)}
       blinkTimer = setTimeout(apply, MIN_INTERVAL + 20);
     } else apply();
 
-    if (!quietLoad && !(tabPlaying && $('listen').checked)) playNotes(st.notes); // listening: the mic must hear the player, not us
+    if (!quietLoad && !recording && !syncing && !(tabPlaying && $('listen').checked)) playNotes(st.notes); // listening: the mic must hear the player, not us
     $('tabStep').textContent = `Krok ${tabPos + 1} z ${tab.steps.length}:`;
     const names = st.notes.slice().sort((a,b) => b.s - a.s)
       .map(n => STRINGS[n.s] + n.fret + (n.fret === 0 ? ' (prázdná)' : ''));
@@ -794,13 +814,17 @@ input[type=range]{accent-color:var(--led)}
     if (!tabPlaying) return;
     if (tabPos + 1 >= tab.steps.length){ pauseTab(); return; }
     showStep(tabPos + 1);
-    const st = tab.steps[tabPos];
-    const beat = 60000 / +$('tempo').value;
-    const d = $('rhythm').checked ? beat * Math.max(1, st.gap) / 2 : beat;
-    tabTimer = setTimeout(stepNext, Math.max(MIN_INTERVAL * 2, d));
+    tabTimer = setTimeout(stepNext, stepDelay());
+  }
+  // How long the current step lasts: recorded timing if there is one, else tempo + gaps in the tab
+  function stepDelay(){
+    if (curTimes && tabPos + 1 < curTimes.length) return Math.max(MIN_INTERVAL, (curTimes[tabPos + 1] - curTimes[tabPos]) * 1000 / +$('rate').value);
+    const beat = 60000 / +$('tempo').value, st = tab.steps[tabPos];
+    return Math.max(MIN_INTERVAL * 2, $('rhythm').checked ? beat * Math.max(1, st.gap) / 2 : beat);
   }
   function playTab(){
-    if (!tab || !tab.steps.length) return;
+    if (!tab || !tab.steps.length || recording) return;
+    if (syncing){ try { yt.getPlayerState() === 1 ? yt.pauseVideo() : yt.playVideo(); } catch(e){} return; }
     haltAnim(); clearChordSel(); stopTuner();
     if (tabPos >= tab.steps.length - 1) tabPos = -1;
     tabPlaying = true; setPlayBtn(true);
@@ -823,12 +847,17 @@ input[type=range]{accent-color:var(--led)}
     tabPlaying = false; clearTimeout(tabTimer);
     stopListen(); setPlayBtn(false);
   }
-  function go(delta){ if (!tab) return; pauseTab(); haltAnim(); clearChordSel(); stopTuner(); showStep(tabPos + delta); }
+  function go(delta){
+    if (!tab) return;
+    if (recording){ if (delta === 1) recMark(tabPos, ytTime()); else if (delta === -1) showStep(tabPos - 1); return; } // pedal marks a note by hand
+    if (syncing){ const i = Math.max(0, Math.min(tab.steps.length - 1, tabPos + delta)); try { yt.seekTo(curTimes[i], true); } catch(e){} showStep(i); return; }
+    pauseTab(); haltAnim(); clearChordSel(); stopTuner(); showStep(tabPos + delta);
+  }
 
   function loadTab(){
     const text = $('tabText').value;
     store.set('tab', text);
-    pauseTab();
+    pauseTab(); stopRec(true); stopSync();
     tab = parseTab(text);
     if (!tab.steps.length){
       tab = null; $('tabPlayer').hidden = true;
@@ -839,6 +868,9 @@ input[type=range]{accent-color:var(--led)}
     $('tabPlayer').hidden = false;
     buildTabView();
     haltAnim(); clearChordSel();
+    const entry = libRemember(text, tab.steps.length);
+    $('ytUrl').value = entry.video || '';
+    updateTimeInfo(); ytPrepare();
     tabPos = -1; showStep(0);
   }
 
@@ -1091,7 +1123,7 @@ input[type=range]{accent-color:var(--led)}
         ? 'Přístup k mikrofonu je zamítnutý, povol ho v nastavení stránky.' : 'Mikrofon se nepodařilo spustit: ' + err.message;
       lStream = null; return false;
     }
-    if (!tabPlaying){ stopListen(); return false; }
+    if (!tabPlaying && !recording){ stopListen(); return false; }
     const src = actx.createMediaStreamSource(lStream);
     lAnalyser = actx.createAnalyser(); lAnalyser.fftSize = 2048; src.connect(lAnalyser);
     lBuf = new Float32Array(lAnalyser.fftSize); lSlow = 0; lOnsetAt = 0; lMatched = true;
@@ -1111,20 +1143,174 @@ input[type=range]{accent-color:var(--led)}
     rms = Math.sqrt(rms / lBuf.length);
     const now = performance.now();
     // a new pluck = sudden rise in loudness; each pluck may advance one step (so repeated notes work)
-    if (rms > 0.015 && rms > lSlow * 1.6 && now - lOnsetAt > 120){ lOnsetAt = now; lMatched = false; }
+    if (rms > 0.015 && rms > lSlow * 1.6 && now - lOnsetAt > 120){ lOnsetAt = now; lMatched = false; lOnsetVT = ytTime(); }
     lSlow = lSlow * 0.9 + rms * 0.1;
-    if (!tabPlaying || lMatched || now - lOnsetAt > 400 || tabPos < 0) return;
+    if (!(tabPlaying || recording) || lMatched || now - lOnsetAt > 400 || tabPos < 0) return;
     const f = detectPitch(lBuf, actx.sampleRate); if (f < 0) return;
     const m = 69 + 12 * Math.log2(f / 440);
-    const ok = tab.steps[tabPos].notes.some(n => {
+    const match = k => tab.steps[k].notes.some(n => {
       const d = m - (OPEN_MIDI[n.s] + n.fret);
       return Math.abs(d) < 12.5 && Math.abs(d - 12 * Math.round(d / 12)) < 0.5; // same note, octave tolerated
     });
-    if (!ok) return;
+    if (recording){
+      // recording from a video: look a few notes ahead so one missed note does not stall it
+      for (let k = tabPos; k < Math.min(tab.steps.length, tabPos + 4); k++)
+        if (match(k)){ lMatched = true; recMark(k, Math.max(0, lOnsetVT - 0.05)); return; }
+      return;
+    }
+    if (!match(tabPos)) return;
     lMatched = true;
     if (tabPos + 1 >= tab.steps.length){ pauseTab(); return; }
     showStep(tabPos + 1);
   }
+
+  // ----- Tab library: every loaded tab is kept, with its video link and recorded timing -----
+  let curEntry = null, curTimes = null;
+  const libLoad = () => { try { return JSON.parse(store.get('library') || '[]'); } catch(e){ return []; } };
+  const timed = e => !!(e && e.times && e.times.length && e.times.every(t => t != null));
+  function libSave(lib){ store.set('library', JSON.stringify(lib)); renderLib(); }
+  function tabTitle(text){
+    const line = text.split('\n').map(l => l.trim()).find(l => l && (l.match(/-/g) || []).length < 4);
+    return line ? line.slice(0, 60) : 'Bez názvu';
+  }
+  function libRemember(text, steps){
+    const lib = libLoad(), title = tabTitle(text);
+    let e = lib.find(x => x.text === text) || lib.find(x => x.title === title);
+    if (!e){ e = { id: Date.now().toString(36), title, text, video: '', times: [] }; lib.push(e); }
+    e.text = text; e.title = title; e.updated = Date.now();
+    if ((e.times || []).length !== steps) e.times = []; // the tab changed: old timing no longer fits
+    curEntry = e.id; libSave(lib);
+    return e;
+  }
+  const curGet = () => libLoad().find(x => x.id === curEntry) || null;
+  function curUpdate(fn){
+    const lib = libLoad(), e = lib.find(x => x.id === curEntry); if (!e) return;
+    fn(e); e.updated = Date.now(); libSave(lib);
+  }
+  function renderLib(){
+    const lib = libLoad().sort((a, b) => (b.updated || 0) - (a.updated || 0)), sel = $('libSel');
+    sel.innerHTML = `<option value="">Uložené taby (${lib.length})</option>` +
+      lib.map(e => `<option value="${e.id}">${esc(e.title)}${timed(e) ? ' – s časováním' : ''}</option>`).join('');
+    sel.value = lib.some(e => e.id === curEntry) ? curEntry : '';
+    $('libDel').disabled = !sel.value;
+  }
+  $('libSel').addEventListener('change', () => {
+    const e = libLoad().find(x => x.id === $('libSel').value); if (!e) return;
+    $('tabText').value = e.text; loadTab();
+  });
+  $('libDel').onclick = () => {
+    const e = libLoad().find(x => x.id === $('libSel').value); if (!e) return;
+    if (!confirm(`Smazat „${e.title}“ z uložených tabů?`)) return;
+    libSave(libLoad().filter(x => x.id !== e.id));
+    if (curEntry === e.id){ curEntry = null; curTimes = null; updateTimeInfo(); }
+  };
+  function updateTimeInfo(){
+    const e = curGet(), n = tab ? tab.steps.length : 0, k = e && e.times ? e.times.filter(t => t != null).length : 0;
+    curTimes = timed(e) ? e.times : null;
+    $('timeInfo').textContent = curTimes ? `Časování nahrané pro všech ${n} kroků. Přehrát pak hraje v tomto rytmu i bez videa.`
+      : k ? `Časování nahrané pro ${k} z ${n} kroků. Klepni na první chybějící notu v tabu a nahraj zbytek.`
+      : 'Vlož odkaz, klepni na Nahrát časování a nech video hrát nahlas. Appka pozná noty a zapíše si jejich časy.';
+    $('syncBtn').disabled = !curTimes;
+  }
+
+  // ----- YouTube video: record the timing of each step, then play in sync -----
+  let yt = null, ytReady = null, ytVid = '', recording = false, syncing = false, syncRaf = 0, lOnsetVT = 0, recTimes = [];
+  const ytTime = () => { try { return yt && yt.getCurrentTime ? yt.getCurrentTime() : 0; } catch(e){ return 0; } };
+  const ytId = url => { const s = String(url).trim(), m = s.match(/(?:youtu\.be\/|[?&]v=|embed\/|shorts\/|live\/)([\w-]{11})/);
+    return m ? m[1] : (/^[\w-]{11}$/.test(s) ? s : ''); };
+  function ytApi(){
+    if (!ytReady) ytReady = new Promise((res, rej) => {
+      if (window.YT && window.YT.Player) return res();
+      window.onYouTubeIframeAPIReady = res;
+      loadScript('https://www.youtube.com/iframe_api').catch(rej);
+    });
+    return ytReady;
+  }
+  async function ytPrepare(){
+    const id = ytId($('ytUrl').value);
+    $('ytBox').hidden = !id;
+    if (!id) return null;
+    if (yt && ytVid === id) return yt;
+    try { await ytApi(); } catch(e){ ytReady = null; $('timeInfo').textContent = 'Video se nepodařilo načíst. Jsi online?'; return null; }
+    if (yt && yt.cueVideoById){ yt.cueVideoById(id); ytVid = id; return yt; }
+    await new Promise(res => {
+      yt = new YT.Player('ytPlayer', { videoId: id, playerVars: { playsinline: 1, rel: 0 },
+        events: { onReady: res, onStateChange: ev => { if (ev.data === 0){ stopRec(true); stopSync(); } } } });
+    });
+    ytVid = id; return yt;
+  }
+  $('ytUrl').addEventListener('change', () => {
+    const v = $('ytUrl').value.trim();
+    curUpdate(e => { if (e.video && e.video !== v) e.times = []; e.video = v; }); // another video: timing no longer fits
+    updateTimeInfo(); ytPrepare();
+  });
+  $('rate').addEventListener('change', () => { if (syncing) try { yt.setPlaybackRate(+$('rate').value); } catch(e){} });
+
+  async function startRec(){
+    if (!tab) return;
+    if (!ytId($('ytUrl').value)){ $('timeInfo').textContent = 'Nejdřív vlož odkaz na video z YouTube.'; return; }
+    const p = await ytPrepare(); if (!p) return;
+    stopAnim();
+    const e = curGet();
+    recTimes = (e && e.times && e.times.length === tab.steps.length) ? e.times.slice() : new Array(tab.steps.length).fill(null);
+    const from = Math.max(0, tabPos);
+    recording = true;
+    $('recBtn').textContent = 'Zastavit nahrávání'; $('recBtn').classList.add('rec');
+    showStep(from);
+    if (!(await startListen())){ stopRec(false); return; }
+    // continue right after the last recorded note, or from the start
+    p.seekTo(from > 0 && recTimes[from - 1] != null ? Math.max(0, recTimes[from - 1] - 1) : 0, true);
+    p.setPlaybackRate(1); p.playVideo();
+  }
+  function recMark(k, t){
+    for (let j = tabPos; j < k; j++) recTimes[j] = null; // missed notes are filled in afterwards
+    recTimes[k] = t;
+    if (k + 1 >= tab.steps.length){ showStep(k); stopRec(true); return; }
+    showStep(k + 1);
+  }
+  function fillTimes(T){
+    const known = []; T.forEach((t, i) => { if (t != null) known.push(i); });
+    for (let a = 0; a + 1 < known.length; a++){
+      const i = known[a], j = known[a + 1];
+      for (let k = i + 1; k < j; k++) T[k] = T[i] + (T[j] - T[i]) * (k - i) / (j - i);
+    }
+    for (let k = 1; k < T.length; k++) if (T[k] != null && T[k - 1] != null && T[k] < T[k - 1]) T[k] = T[k - 1]; // never backwards
+  }
+  function stopRec(save){
+    if (!recording) return;
+    recording = false; stopListen();
+    $('recBtn').textContent = 'Nahrát časování'; $('recBtn').classList.remove('rec');
+    try { yt.pauseVideo(); } catch(e){}
+    if (save){ fillTimes(recTimes); curUpdate(e => { e.times = recTimes.map(t => t == null ? null : Math.round(t * 1000) / 1000); }); }
+    updateTimeInfo();
+  }
+  $('recBtn').onclick = () => recording ? stopRec(true) : startRec();
+
+  async function startSync(){
+    if (!curTimes) return;
+    const p = await ytPrepare(); if (!p) return;
+    stopAnim();
+    syncing = true;
+    $('syncBtn').textContent = 'Zastavit video'; $('syncBtn').setAttribute('aria-pressed', 'true');
+    p.setPlaybackRate(+$('rate').value);
+    p.seekTo(tabPos > 0 ? Math.max(0, curTimes[tabPos] - 0.5) : 0, true);
+    p.playVideo();
+    syncLoop();
+  }
+  function syncLoop(){
+    syncRaf = requestAnimationFrame(syncLoop);
+    const t = ytTime() + 0.03;
+    let lo = 0, hi = curTimes.length - 1, i = -1;
+    while (lo <= hi){ const m = (lo + hi) >> 1; if (curTimes[m] <= t){ i = m; lo = m + 1; } else hi = m - 1; }
+    if (i >= 0 && i !== tabPos) showStep(i);
+  }
+  function stopSync(){
+    if (!syncing) return;
+    syncing = false; cancelAnimationFrame(syncRaf);
+    try { yt.pauseVideo(); } catch(e){}
+    $('syncBtn').textContent = 'Hrát s videem'; $('syncBtn').setAttribute('aria-pressed', 'false');
+  }
+  $('syncBtn').onclick = () => syncing ? stopSync() : startSync();
 
   // ----- Tuner: microphone + McLeod pitch detection -----
   const TUNE = [
@@ -1316,21 +1502,17 @@ input[type=range]{accent-color:var(--led)}
   })();
   $('tabText').value = store.get('tab') || '';
   $('tabLoad').onclick = loadTab;
-  $('tabSample').onclick = () => { $('tabText').value = SAMPLE; loadTab(); };
   $('tabView').addEventListener('click', e => {
     const c = e.target.closest('[data-step]'); if (!c) return;
+    if (recording){ showStep(+c.dataset.step); return; } // resync the expected note
+    if (syncing){ try { yt.seekTo(curTimes[+c.dataset.step], true); } catch(err){} showStep(+c.dataset.step); return; }
     const wasPlaying = tabPlaying;
     haltAnim(); clearChordSel();
     if (wasPlaying && lStream){ showStep(+c.dataset.step); return; } // keep listening from the new spot
     pauseTab(); showStep(+c.dataset.step);
     if (wasPlaying){ tabPlaying = true; setPlayBtn(true); stepNextLater(); }
   });
-  function stepNextLater(){
-    const beat = 60000 / +$('tempo').value;
-    const st = tab.steps[tabPos];
-    const d = $('rhythm').checked ? beat * Math.max(1, st.gap) / 2 : beat;
-    tabTimer = setTimeout(stepNext, Math.max(MIN_INTERVAL * 2, d));
-  }
+  function stepNextLater(){ tabTimer = setTimeout(stepNext, stepDelay()); }
   $('tabPrev').onclick = () => go(-1);
   $('tabNext').onclick = () => go(1);
   $('tabStart').onclick = () => go(-Infinity);
@@ -1366,6 +1548,7 @@ input[type=range]{accent-color:var(--led)}
   });
 
   // A tab left in the box from last time is loaded right away (silently, no sound before the first tap)
+  renderLib();
   var quietLoad = false;
   if ($('tabText').value.trim()){ quietLoad = true; try { loadTab(); } finally { quietLoad = false; } }
 
