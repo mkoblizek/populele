@@ -289,6 +289,12 @@ input[type=range]{accent-color:var(--led)}
       <summary><h2>Nastavení a ladění</h2></summary>
       <label><input type="checkbox" id="lockOrder"> Zamknout pořadí panelů</label>
       <label><input type="checkbox" id="flip"> Otočit směr pražců</label>
+      <div class="row" style="margin-top:12px">
+        <button class="btn ghost" id="libExport">Exportovat taby</button>
+        <button class="btn ghost" id="libImport">Importovat taby</button>
+        <input type="file" id="libFile" accept=".json,application/json" hidden>
+      </div>
+      <p class="hint" id="libIoMsg">Uložené taby i s časováním a odkazy na videa do souboru a zpět, třeba pro přenos z PC do mobilu.</p>
       <label>Vlastní UUID služby
         <input type="text" id="customSvc" placeholder="např. ffa0 nebo celé UUID" autocomplete="off" spellcheck="false">
       </label>
@@ -1353,6 +1359,37 @@ input[type=range]{accent-color:var(--led)}
   $('libSel').addEventListener('change', () => {
     const e = libLoad().find(x => x.id === $('libSel').value); if (!e) return;
     $('tabText').value = e.text; loadTab();
+  });
+  // Export / import of the tab library (e.g. PC -> phone): a JSON file; on import the newer copy of a tab wins
+  $('libExport').onclick = () => {
+    const lib = libLoad();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'populele', v: 1, library: lib })], { type: 'application/json' }));
+    a.download = 'populele-taby.json';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    $('libIoMsg').textContent = `Exportováno ${lib.length} tabů do souboru populele-taby.json.`;
+  };
+  $('libImport').onclick = () => $('libFile').click();
+  $('libFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      const inc = Array.isArray(d) ? d : d && d.library;
+      if (!Array.isArray(inc)) throw new Error('tohle není export tabů z téhle appky');
+      const lib = libLoad(); let added = 0, updated = 0;
+      inc.forEach(x => {
+        if (!x || typeof x.text !== 'string') return;
+        const i = lib.findIndex(y => y.id === x.id || y.title === x.title);
+        if (i < 0){ lib.push(x); added++; }
+        else if ((x.updated || 0) >= (lib[i].updated || 0)){ lib[i] = x; updated++; }
+      });
+      libSave(lib); updateTimeInfo();
+      $('libIoMsg').textContent = `Importováno: ${added} nových, ${updated} aktualizovaných tabů. Najdeš je v seznamu Uložené taby.`;
+    } catch (err) {
+      $('libIoMsg').textContent = 'Soubor se nepodařilo načíst: ' + err.message;
+    }
   });
   $('libDel').onclick = () => {
     const e = libLoad().find(x => x.id === $('libSel').value); if (!e) return;
