@@ -1186,8 +1186,65 @@ input[type=range]{accent-color:var(--led)}
     }
   });
 
-  // ----- Listen mode: advance the tab when the shown note is played -----
-  let lStream = null, lAnalyser = null, lBuf = null, lRaf = 0, lSlow = 0, lOnsetAt = 0, lMatched = true;
+  // ----- Listening: note onsets that work for fingerpicked, ringing strings -----
+  // An onset is a sudden rise in the short-window spectrum (spectral flux, in dB so the mic level
+  // does not matter). About 0.1 s later the long-window spectrum shows which notes gained energy.
+  const LO_MIDI = 50, HI_MIDI = 92;
+  function makeDetector(sr, nBig, nSmall){
+    const binBig = sr / nBig, binSmall = sr / nSmall, nNotes = HI_MIDI - LO_MIDI + 1;
+    const hist = [], fluxHist = [];
+    let peakDb = -200, prevMag = null, lastOnset = -1e9, pending = [], frame = 0, prevFlux = 0;
+    function salience(db){ // linear power at each note's 1st-3rd harmonic
+      const out = new Float32Array(nNotes);
+      for (let n = 0; n < nNotes; n++){
+        const f0 = 440 * Math.pow(2, (n + LO_MIDI - 69) / 12);
+        let p = 0;
+        for (const [hm, w] of [[1, 1], [2, .5], [3, .25]]){
+          const b0 = Math.round(f0 * hm / binBig); let m = -200;
+          for (let k = b0 - 1; k <= b0 + 1; k++) if (db[k] > m) m = db[k];
+          p += w * Math.pow(10, m / 10);
+        }
+        out[n] = p;
+      }
+      return out;
+    }
+    function feed(dbBig, dbSmall, now, vt){
+      frame++;
+      const sal = salience(dbBig); hist.push(sal); if (hist.length > 20) hist.shift();
+      const lo = Math.floor(60 / binSmall), hi = Math.min(dbSmall.length - 1, Math.ceil(5000 / binSmall));
+      let fmax = -200; for (let k = lo; k <= hi; k++) if (dbSmall[k] > fmax) fmax = dbSmall[k];
+      peakDb = Math.max(fmax, peakDb - 0.05);
+      const floor = peakDb - 50, mag = new Float32Array(hi + 1);
+      let flux = 0;
+      for (let k = lo; k <= hi; k++){
+        mag[k] = Math.max(floor, dbSmall[k]);
+        if (prevMag){ const d = mag[k] - prevMag[k]; if (d > 0) flux += d; }
+      }
+      flux /= (hi - lo + 1); prevMag = mag;
+      fluxHist.push(flux); if (fluxHist.length > 40) fluxHist.shift();
+      const med = fluxHist.slice().sort((x, y) => x - y)[Math.floor(fluxHist.length / 2)];
+      if (flux > med * 1.6 + 1 && flux > prevFlux && now - lastOnset > 0.07 && fmax > -85){
+        lastOnset = now; pending.push({ frame, vt, before: hist[Math.max(0, hist.length - 3)] });
+      }
+      prevFlux = flux;
+      const out = [];
+      pending = pending.filter(q => {
+        if (frame - q.frame < 6) return true;
+        const inc = new Float32Array(nNotes); let mx = 1e-20;
+        for (let n = 0; n < nNotes; n++){ inc[n] = Math.max(0, sal[n] - q.before[n]); if (inc[n] > mx) mx = inc[n]; }
+        for (let n = 0; n < nNotes; n++) inc[n] /= mx; // gain relative to the strongest gain, 0..1
+        out.push({ vt: q.vt, inc });
+        return false;
+      });
+      return out;
+    }
+    return { feed };
+  }
+  const noteGain = (inc, m) => (m >= LO_MIDI && m <= HI_MIDI) ? inc[m - LO_MIDI] : 0;
+  const noteScore = (inc, m) => Math.max(noteGain(inc, m), 0.6 * noteGain(inc, m + 12)); // fundamental or its octave
+  const stepScore = (k, inc) => Math.max(...tab.steps[k].notes.map(n => noteScore(inc, OPEN_MIDI[n.s] + n.fret)));
+
+  let lStream = null, lBig = null, lSmall = null, lRaf = 0, lDet = null, fBig = null, fSmall = null;
   async function startListen(){
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
       $('tabMsg').textContent = 'Mikrofon tu není dostupný. Stránka musí běžet přes https nebo localhost.'; return false;
@@ -1202,8 +1259,11 @@ input[type=range]{accent-color:var(--led)}
     }
     if (!tabPlaying && !recording){ stopListen(); return false; }
     const src = actx.createMediaStreamSource(lStream);
-    lAnalyser = actx.createAnalyser(); lAnalyser.fftSize = 2048; src.connect(lAnalyser);
-    lBuf = new Float32Array(lAnalyser.fftSize); lSlow = 0; lOnsetAt = 0; lMatched = true;
+    lBig = actx.createAnalyser(); lBig.fftSize = 8192; lBig.smoothingTimeConstant = 0;
+    lSmall = actx.createAnalyser(); lSmall.fftSize = 1024; lSmall.smoothingTimeConstant = 0;
+    src.connect(lBig); src.connect(lSmall);
+    fBig = new Float32Array(lBig.frequencyBinCount); fSmall = new Float32Array(lSmall.frequencyBinCount);
+    lDet = makeDetector(actx.sampleRate, 8192, 1024);
     listenLoop();
     return true;
   }
@@ -1211,34 +1271,53 @@ input[type=range]{accent-color:var(--led)}
     if (!lStream) return;
     cancelAnimationFrame(lRaf);
     lStream.getTracks().forEach(t => t.stop());
-    lStream = null; lAnalyser = null;
+    lStream = null; lBig = lSmall = null;
   }
   function listenLoop(){
     lRaf = requestAnimationFrame(listenLoop);
-    lAnalyser.getFloatTimeDomainData(lBuf);
-    let rms = 0; for (let i = 0; i < lBuf.length; i++) rms += lBuf[i] * lBuf[i];
-    rms = Math.sqrt(rms / lBuf.length);
-    const now = performance.now();
-    // a new pluck = sudden rise in loudness; each pluck may advance one step (so repeated notes work)
-    if (rms > 0.015 && rms > lSlow * 1.6 && now - lOnsetAt > 120){ lOnsetAt = now; lMatched = false; lOnsetVT = ytTime(); }
-    lSlow = lSlow * 0.9 + rms * 0.1;
-    if (!(tabPlaying || recording) || lMatched || now - lOnsetAt > 400 || tabPos < 0) return;
-    const f = detectPitch(lBuf, actx.sampleRate); if (f < 0) return;
-    const m = 69 + 12 * Math.log2(f / 440);
-    const match = k => tab.steps[k].notes.some(n => {
-      const d = m - (OPEN_MIDI[n.s] + n.fret);
-      return Math.abs(d) < 12.5 && Math.abs(d - 12 * Math.round(d / 12)) < 0.5; // same note, octave tolerated
-    });
+    lBig.getFloatFrequencyData(fBig); lSmall.getFloatFrequencyData(fSmall);
+    for (const o of lDet.feed(fBig, fSmall, performance.now() / 1000, ytTime())) onOnset(o);
+  }
+  function onOnset(o){
+    if (!tab || tabPos < 0) return;
     if (recording){
-      // recording from a video: look a few notes ahead so one missed note does not stall it
-      for (let k = tabPos; k < Math.min(tab.steps.length, tabPos + 4); k++)
-        if (match(k)){ lMatched = true; recMark(k, Math.max(0, lOnsetVT - 0.05)); return; }
+      recOnsets.push({ t: Math.max(0, o.vt - 0.03), inc: o.inc });
+      // live preview only; the final timing is worked out when recording stops
+      for (let k = tabPos; k < Math.min(tab.steps.length, tabPos + 2); k++)
+        if (stepScore(k, o.inc) >= 0.5){ if (k + 1 < tab.steps.length) showStep(k + 1); return; }
       return;
     }
-    if (!match(tabPos)) return;
-    lMatched = true;
-    if (tabPos + 1 >= tab.steps.length){ pauseTab(); return; }
-    showStep(tabPos + 1);
+    if (!tabPlaying) return;
+    let k = -1;
+    if (stepScore(tabPos, o.inc) >= 0.4) k = tabPos;
+    else if (tabPos + 1 < tab.steps.length && stepScore(tabPos + 1, o.inc) >= 0.7) k = tabPos + 1; // one note was missed
+    if (k < 0) return;
+    if (k + 1 >= tab.steps.length){ pauseTab(); return; }
+    showStep(k + 1);
+  }
+  // Fit the tab's notes to the recorded onsets: order is kept, each note takes at most one onset,
+  // notes nobody heard and onsets that fit nothing are allowed (Needleman–Wunsch alignment).
+  function alignSteps(from, onsets){
+    const N = tab.steps.length - from, M = onsets.length, W = M + 1;
+    if (N <= 0 || !M) return [];
+    const SKIP_STEP = 0.35, SKIP_ON = 0.05;
+    const fit = (i, j) => stepScore(from + i, onsets[j].inc) - 0.3;
+    const D = new Float32Array((N + 1) * W), B = new Uint8Array((N + 1) * W);
+    for (let i = 1; i <= N; i++){ D[i * W] = D[(i - 1) * W] - SKIP_STEP; B[i * W] = 1; }
+    for (let j = 1; j <= M; j++){ D[j] = D[j - 1] - SKIP_ON; B[j] = 2; }
+    for (let i = 1; i <= N; i++) for (let j = 1; j <= M; j++){
+      const a = D[(i - 1) * W + j - 1] + fit(i - 1, j - 1), b = D[(i - 1) * W + j] - SKIP_STEP, c = D[i * W + j - 1] - SKIP_ON;
+      if (a >= b && a >= c){ D[i * W + j] = a; B[i * W + j] = 0; }
+      else if (b >= c){ D[i * W + j] = b; B[i * W + j] = 1; }
+      else { D[i * W + j] = c; B[i * W + j] = 2; }
+    }
+    const times = new Array(N).fill(null);
+    for (let i = N, j = M; i > 0 || j > 0; ){
+      const bk = (i > 0 && j > 0) ? B[i * W + j] : (i > 0 ? 1 : 2);
+      if (bk === 0){ if (fit(i - 1, j - 1) > -0.15) times[i - 1] = onsets[j - 1].t; i--; j--; }
+      else if (bk === 1) i--; else j--;
+    }
+    return times;
   }
 
   // ----- Tab library: every loaded tab is kept, with its video link and recorded timing -----
@@ -1291,7 +1370,7 @@ input[type=range]{accent-color:var(--led)}
   }
 
   // ----- YouTube video: record the timing of each step, then play in sync -----
-  let yt = null, ytReady = null, ytVid = '', recording = false, syncing = false, syncRaf = 0, lOnsetVT = 0, recTimes = [];
+  let yt = null, ytReady = null, ytVid = '', recording = false, syncing = false, syncRaf = 0, recTimes = [], recOnsets = [], recFrom = 0, recManual = new Map();
   const ytTime = () => { try { return yt && yt.getCurrentTime ? yt.getCurrentTime() : 0; } catch(e){ return 0; } };
   const ytId = url => { const s = String(url).trim(), m = s.match(/(?:youtu\.be\/|[?&]v=|embed\/|shorts\/|live\/)([\w-]{11})/);
     return m ? m[1] : (/^[\w-]{11}$/.test(s) ? s : ''); };
@@ -1331,6 +1410,7 @@ input[type=range]{accent-color:var(--led)}
     const e = curGet();
     recTimes = (e && e.times && e.times.length === tab.steps.length) ? e.times.slice() : new Array(tab.steps.length).fill(null);
     const from = Math.max(0, tabPos);
+    recFrom = from; recOnsets = []; recManual = new Map();
     recording = true;
     $('recBtn').textContent = 'Zastavit nahrávání'; $('recBtn').classList.add('rec');
     showStep(from);
@@ -1339,17 +1419,19 @@ input[type=range]{accent-color:var(--led)}
     p.seekTo(from > 0 && recTimes[from - 1] != null ? Math.max(0, recTimes[from - 1] - 1) : 0, true);
     p.setPlaybackRate(1); p.playVideo();
   }
-  function recMark(k, t){
-    for (let j = tabPos; j < k; j++) recTimes[j] = null; // missed notes are filled in afterwards
-    recTimes[k] = t;
+  function recMark(k, t){ // pedal / Next while recording: this note is now, for sure
+    recManual.set(k, t);
     if (k + 1 >= tab.steps.length){ showStep(k); stopRec(true); return; }
     showStep(k + 1);
   }
   function fillTimes(T){
     const known = []; T.forEach((t, i) => { if (t != null) known.push(i); });
+    const g = k => Math.max(1, (tab && tab.steps[k] && tab.steps[k].gap) || 1);
     for (let a = 0; a + 1 < known.length; a++){
       const i = known[a], j = known[a + 1];
-      for (let k = i + 1; k < j; k++) T[k] = T[i] + (T[j] - T[i]) * (k - i) / (j - i);
+      let tot = 0; for (let k = i; k < j; k++) tot += g(k);
+      let acc = 0; // missing notes in between: spread by the note lengths written in the tab
+      for (let k = i + 1; k < j; k++){ acc += g(k - 1); T[k] = T[i] + (T[j] - T[i]) * acc / tot; }
     }
     for (let k = 1; k < T.length; k++) if (T[k] != null && T[k - 1] != null && T[k] < T[k - 1]) T[k] = T[k - 1]; // never backwards
   }
@@ -1358,7 +1440,19 @@ input[type=range]{accent-color:var(--led)}
     recording = false; stopListen();
     $('recBtn').textContent = 'Nahrát časování'; $('recBtn').classList.remove('rec');
     try { yt.pauseVideo(); } catch(e){}
-    if (save){ fillTimes(recTimes); curUpdate(e => { e.times = recTimes.map(t => t == null ? null : Math.round(t * 1000) / 1000); }); }
+    if (save && (recOnsets.length || recManual.size)){
+      // fit the notes to what was heard, keep earlier timing before the starting note, then the pedal marks
+      const lastT = Math.max(recOnsets.length ? recOnsets[recOnsets.length - 1].t : 0, ...recManual.values());
+      const al = alignSteps(recFrom, recOnsets);
+      for (let k = recFrom; k < tab.steps.length; k++){
+        const t = al[k - recFrom];
+        if (t != null) recTimes[k] = t;
+        else if (recTimes[k] != null && recTimes[k] <= lastT) recTimes[k] = null; // inside the new take: re-fill
+      }
+      recManual.forEach((t, k) => { recTimes[k] = t; });
+      fillTimes(recTimes);
+      curUpdate(e => { e.times = recTimes.map(t => t == null ? null : Math.round(t * 1000) / 1000); });
+    }
     updateTimeInfo();
   }
   $('recBtn').onclick = () => recording ? stopRec(true) : startRec();
