@@ -622,21 +622,25 @@ input[type=range]{accent-color:var(--led)}
 
   function parseTab(text){
     const lines = text.replace(/\r/g,'').replace(/\t/g,'    ').split('\n');
-    const parsed = lines.map(raw => {
-      let s = raw.replace(/\s+$/,'').replace(/^\s+/,'');
+    const parsed = lines.map((raw, idx) => {
+      let s = raw.replace(/\s+$/,'');
+      let off = s.match(/^\s*/)[0].length; s = s.slice(off); // off = where the body starts in the raw line
       let label = null;
-      if (/^[GCEAgcea](?![A-Za-z])/.test(s)){ label = s[0].toUpperCase(); s = s.slice(1).replace(/^\s+/,''); }
+      if (/^[GCEAgcea](?![A-Za-z])/.test(s)){
+        label = s[0].toUpperCase(); s = s.slice(1);
+        const sp = s.match(/^\s*/)[0].length; s = s.slice(sp); off += 1 + sp;
+      }
       if ((s.match(/-/g) || []).length < 4) return null;
       const ok = (s.match(/[-0-9|:hpbrsxX\/\\~().<>^*=\[\]tv ]/g) || []).length;
       if (ok / s.length < 0.85) return null;
-      return { label, body: s };
+      return { label, body: s, off, idx };
     });
     const blocks = []; let cur = [];
     const flushCur = () => { for (let i = 0; i + 4 <= cur.length; i += 4) blocks.push(cur.slice(i, i + 4)); cur = []; };
     parsed.forEach(p => { if (p) cur.push(p); else flushCur(); });
     flushCur();
 
-    const steps = [];
+    const steps = [], events = [];
     blocks.forEach((blk, bi) => {
       const labels = blk.map(l => l.label);
       const set = new Set(labels);
@@ -662,13 +666,47 @@ input[type=range]{accent-color:var(--led)}
       }
       bs.forEach((st, i) => {
         if (i + 1 < bs.length){
-          const pipes = (blk[0].body.slice(st.col, bs[i+1].col).match(/\|/g) || []).length; // bar lines take no time
+          const pipes = (blk[0].body.slice(st.col, bs[i+1].col).match(/[|:]/g) || []).length; // bar lines and repeat dots take no time
           st.gap = Math.max(1, bs[i+1].col - st.col - pipes);
         } else st.gap = Math.max(2, len - st.col);
       });
+      // play-order events of this block: notes, repeat signs (|: and :|) and 1./2. endings
+      const base = steps.length;
+      bs.forEach((st, i) => events.push({ col: st.col, rank: 3, t: 'step', i: base + i, bi }));
+      const b0 = blk[0].body;
+      for (let c = 0; c < b0.length; c++){
+        if (b0[c] !== ':') continue;
+        if (b0[c - 1] === '|') events.push({ col: c, rank: 2, t: 'start', bi });
+        if (b0[c + 1] === '|') events.push({ col: c, rank: 0, t: 'end', bi });
+      }
+      const above = lines[blk[0].idx - 1] || '';
+      if (/^[\s\[\]_\-.0-9]*[1-4]\.[\s\[\]_\-.0-9]*$/.test(above))
+        for (const m of above.matchAll(/([1-4])\./g)) events.push({ col: m.index - blk[0].off, rank: 1, t: 'volta', n: +m[1], bi });
       steps.push(...bs);
     });
-    return { steps, blocks };
+    events.sort((a, b) => a.bi - b.bi || a.col - b.col || a.rank - b.rank);
+    // unroll: repeat sections play twice, a 1. ending only on the first pass, a 2. ending only on the second
+    const order = [], done = new Set();
+    let start = 0, pass = 1, guard = 0;
+    for (let e = 0; e < events.length && guard++ < 100000; ){
+      const ev = events[e];
+      if (ev.t === 'start'){ start = e + 1; pass = 1; e++; }
+      else if (ev.t === 'step'){ order.push(ev.i); e++; }
+      else if (ev.t === 'volta'){
+        if (ev.n === pass){ e++; continue; }
+        let k = e + 1; // skip this ending: to the ending for this pass, or the next repeat start
+        while (k < events.length && !(events[k].t === 'volta' && events[k].n === pass) && events[k].t !== 'start') k++;
+        e = k;
+      }
+      else if (ev.t === 'end'){
+        if (!done.has(e)){ done.add(e); pass = 2; e = start; }
+        else { start = e + 1; e++; }
+      }
+      else e++;
+    }
+    const raw = steps;
+    const played = (order.length ? order : raw.map((_, i) => i)).map(i => ({ ...raw[i], orig: i }));
+    return { steps: played, raw, blocks, repeats: played.length !== raw.length };
   }
 
   function setOpen(list){
@@ -693,7 +731,7 @@ input[type=range]{accent-color:var(--led)}
       const len = Math.max(...blk.map(l => l.body.length));
       const labW = Math.max(...blk.map(l => (l.label || '').length));
       const colStep = new Map();
-      tab.steps.forEach((st, i) => { if (st.block === bi) for (let k = 0; k < st.w; k++) colStep.set(st.col + k, i); });
+      tab.raw.forEach((st, i) => { if (st.block === bi) for (let k = 0; k < st.w; k++) colStep.set(st.col + k, i); });
       const maxBody = Math.max(8, cols - labW - 1);
       let start = 0;
       while (start < len){
@@ -722,7 +760,7 @@ input[type=range]{accent-color:var(--led)}
   // Highlight the current column and keep it in view while playing
   function renderTabView(){
     curEls.forEach(e => e.classList.remove('cur'));
-    curEls = Array.from($('tabView').querySelectorAll(`[data-step="${tabPos}"]`));
+    curEls = Array.from($('tabView').querySelectorAll(`[data-step="${tab.steps[tabPos].orig}"]`));
     curEls.forEach(e => e.classList.add('cur'));
     const el = curEls[0]; if (!el) return;
     const pre = $('tabView');
@@ -864,7 +902,7 @@ input[type=range]{accent-color:var(--led)}
       $('tabMsg').textContent = 'V textu jsem nenašel žádný tab. Hledám čtyři řádky pod sebou s pomlčkami a čísly pražců, třeba „A|--0--3--|“. Pokud je tab na stránce jako obrázek, kopírováním se text nepřenese.';
       return;
     }
-    $('tabMsg').textContent = `Načteno ${tab.steps.length} kroků v ${tab.blocks.length} ${tab.blocks.length === 1 ? 'řádku' : 'řádcích'} tabu.`;
+    $('tabMsg').textContent = `Načteno ${tab.raw.length} not v ${tab.blocks.length} ${tab.blocks.length === 1 ? 'řádku' : 'řádcích'} tabu` + (tab.repeats ? `, s repeticemi ${tab.steps.length} kroků.` : '.');
     $('tabPlayer').hidden = false;
     buildTabView();
     haltAnim(); clearChordSel();
@@ -950,11 +988,11 @@ input[type=range]{accent-color:var(--led)}
               const bw = Math.abs(p[1][0]-p[0][0]) + Math.abs(p[3][0]-p[0][0]);
               const bh = Math.abs(p[1][1]-p[0][1]) + Math.abs(p[3][1]-p[0][1]);
               if (bh < 1.5 && bw > 3) hseg.push({ y:(p[0][1]+p[2][1])/2, x1:Math.min(p[0][0],p[2][0]), x2:Math.max(p[0][0],p[2][0]) });
-              else if (bw < 1.5 && bh > 3) vseg.push({ x:(p[0][0]+p[2][0])/2, y1:Math.min(p[0][1],p[2][1]), y2:Math.max(p[0][1],p[2][1]) });
+              else if (bw < 3.5 && bh > 3) vseg.push({ x:(p[0][0]+p[2][0])/2, y1:Math.min(p[0][1],p[2][1]), y2:Math.max(p[0][1],p[2][1]) });
             }
           }
         }
-        else if (fn === OPS.fill || fn === OPS.eoFill || fn === OPS.fillStroke || fn === OPS.eoFillStroke){ if (fpath.length) fills.push(fpath); fpath = []; fsub = null; }
+        else if (fn === OPS.fill || fn === OPS.eoFill || fn === OPS.fillStroke || fn === OPS.eoFillStroke){ const sp = fpath.filter(q => q.length > 1); if (sp.length) fills.push(sp); fpath = []; fsub = null; }
         else if (fn === OPS.stroke || fn === OPS.endPath || fn === OPS.closeStroke){ fpath = []; fsub = null; }
       }
       // --- staff detection: 4 evenly spaced horizontal levels ---
@@ -995,8 +1033,36 @@ input[type=range]{accent-color:var(--led)}
             if (!st.bars.some(b => Math.abs(b - v.x) < 3)) st.bars.push(v.x);
         });
       }
+      // repeat signs: two dots at the same x inside a staff, left (:|, end) or right (|:, start) of a bar line
+      for (const st of staves){
+        const top = st.ys[0], bot = st.ys[3], dots = [];
+        fills.forEach(sp => {
+          const pts = sp.flat(), xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+          const w = Math.max(...xs) - Math.min(...xs), hh = Math.max(...ys) - Math.min(...ys);
+          const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+          if (w < 0.15 * st.s || w > 0.6 * st.s || hh < 0.15 * st.s || hh > 0.6 * st.s || Math.abs(w - hh) > 0.25 * st.s) return;
+          if (cy > top || cy < bot || cx < st.x1 - 2 || cx > st.x2 + 2) return;
+          if (Math.min(...st.ys.map(y => Math.abs(y - cy))) < 0.25 * st.s) return; // on a line: not a repeat dot
+          dots.push({ cx, cy });
+        });
+        st.reps = [];
+        dots.forEach((d, i) => dots.forEach((d2, j) => {
+          if (j <= i || Math.abs(d.cx - d2.cx) > 1.2 || Math.abs(d.cy - d2.cy) < 1.2 * st.s) return;
+          if (st.reps.some(r => Math.abs(r.x - d.cx) < 3)) return;
+          let bar = null, bd = Infinity; st.bars.forEach(b => { if (Math.abs(b - d.cx) < bd){ bd = Math.abs(b - d.cx); bar = b; } });
+          st.reps.push({ x: d.cx, t: bar != null && bd < 2 * st.s && bar > d.cx ? 'end' : 'start' });
+        }));
+        st.voltas = [];
+      }
       // --- text: fret numbers ---
       const tc = await page.getTextContent();
+      // 1. / 2. endings: their text sits a little above a staff's top line
+      tc.items.forEach(it => {
+        const m = it.str.trim().match(/^([1-4])\.$/); if (!m) return;
+        const x = it.transform[4], y = it.transform[5];
+        const st = staves.find(s => y > s.ys[0] && y < s.ys[0] + 5 * s.s && x >= s.x1 - 5 && x <= s.x2 + 5);
+        if (st) st.voltas.push({ x, n: +m[1] });
+      });
       const glyphs = [];
       tc.items.forEach(it => {
         const size = Math.hypot(it.transform[2], it.transform[3]);
@@ -1066,9 +1132,17 @@ input[type=range]{accent-color:var(--led)}
     const labels = ['A','E','C','G'];
     const out = [];
     allStaves.forEach(st => {
-      const rows = labels.map(l => l + '|-');
+      const reps = st.reps || [], voltas = (st.voltas || []).slice().sort((a, b) => a.x - b.x);
+      const first = st.steps[0], last = st.steps[st.steps.length - 1];
+      const startAtBegin = reps.some(r => r.t === 'start' && r.x < first.x);
+      const rows = labels.map(l => l + (startAtBegin ? '|:-' : '|-'));
+      const vline = [' '.repeat(rows[0].length)];
       const bars = st.bars.slice().sort((a,b)=>a-b);
       st.steps.forEach((step, i) => {
+        // an ending that starts before this note: write its number above the note
+        const prevX = i ? st.steps[i - 1].x : -Infinity;
+        voltas.filter(v => v.x > prevX - 1 && v.x < step.x + 1).forEach(v => { vline[0] = vline[0].padEnd(rows[0].length, ' ') + v.n + '.'; });
+        vline[0] = vline[0].padEnd(rows[0].length, ' ');
         const w = Math.max(...step.n.filter(Boolean).map(s => s.length));
         for (let r = 0; r < 4; r++) rows[r] += (step.n[r] || '').padEnd(w, '-');
         const next = st.steps[i+1];
@@ -1076,13 +1150,16 @@ input[type=range]{accent-color:var(--led)}
         // the space after a bar line is padding, not duration
         const span = next ? (barAt != null ? barAt - step.x : next.x - step.x) : 0;
         const dash = next ? Math.max(1, 2 * Math.max(1, Math.round(span / med)) - w) : 2; // quantize to note slots
-        if (barAt != null){
-          const before = dash;
-          for (let r = 0; r < 4; r++) rows[r] += '-'.repeat(before) + '|' + '-'.repeat(Math.max(0, dash - before));
+        const between = next ? reps.filter(r => r.x > step.x && r.x < next.x) : [];
+        const isEnd = between.some(r => r.t === 'end'), isStart = between.some(r => r.t === 'start');
+        const barMark = (isEnd ? ':' : '') + '|' + (isStart ? ':' : '');
+        if (barAt != null || isEnd || isStart){
+          for (let r = 0; r < 4; r++) rows[r] += '-'.repeat(dash) + barMark;
         } else for (let r = 0; r < 4; r++) rows[r] += '-'.repeat(dash);
       });
-      for (let r = 0; r < 4; r++) rows[r] += '|';
-      out.push(rows.join('\n'));
+      const endAtFinish = reps.some(r => r.t === 'end' && r.x > last.x);
+      for (let r = 0; r < 4; r++) rows[r] += endAtFinish ? ':|' : '|';
+      out.push((vline[0].trim() ? vline[0].replace(/\s+$/, '') + '\n' : '') + rows.join('\n'));
     });
     return { title, text: (title ? title + '\n\n' : '') + out.join('\n\n'), staves: allStaves.length, notes: allStaves.reduce((a,s)=>a+s.steps.length,0) };
   }
@@ -1103,7 +1180,7 @@ input[type=range]{accent-color:var(--led)}
       if (!res.title) res.title = file.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').replace(/([a-zà-ž])([A-ZÀ-Ž])/g, '$1 $2').trim();
       $('tabText').value = res.text.startsWith(res.title) ? res.text : res.title + '\n\n' + res.text;
       loadTab();
-      if (tab) $('tabMsg').textContent = `Z PDF „${res.title || file.name}“ načteno ${res.staves} řádků tabu a ${tab.steps.length} kroků. Repetice se přehrávají jen jednou.`;
+      if (tab) $('tabMsg').textContent = `Z PDF „${res.title || file.name}“ načteno ${res.staves} řádků tabu a ${tab.raw.length} not` + (tab.repeats ? `, s repeticemi ${tab.steps.length} kroků.` : '.');
     } catch (err) {
       $('tabMsg').textContent = 'PDF se nepodařilo přečíst: ' + err.message;
     }
@@ -1504,12 +1581,17 @@ input[type=range]{accent-color:var(--led)}
   $('tabLoad').onclick = loadTab;
   $('tabView').addEventListener('click', e => {
     const c = e.target.closest('[data-step]'); if (!c) return;
-    if (recording){ showStep(+c.dataset.step); return; } // resync the expected note
-    if (syncing){ try { yt.seekTo(curTimes[+c.dataset.step], true); } catch(err){} showStep(+c.dataset.step); return; }
+    // a written note can be played twice (repeats): take its next occurrence after the current step
+    const o = +c.dataset.step;
+    let k = tab.steps.findIndex((s, i) => i > tabPos && s.orig === o);
+    if (k < 0) k = tab.steps.findIndex(s => s.orig === o);
+    if (k < 0) return;
+    if (recording){ showStep(k); return; } // resync the expected note
+    if (syncing){ try { yt.seekTo(curTimes[k], true); } catch(err){} showStep(k); return; }
     const wasPlaying = tabPlaying;
     haltAnim(); clearChordSel();
-    if (wasPlaying && lStream){ showStep(+c.dataset.step); return; } // keep listening from the new spot
-    pauseTab(); showStep(+c.dataset.step);
+    if (wasPlaying && lStream){ showStep(k); return; } // keep listening from the new spot
+    pauseTab(); showStep(k);
     if (wasPlaying){ tabPlaying = true; setPlayBtn(true); stepNextLater(); }
   });
   function stepNextLater(){ tabTimer = setTimeout(stepNext, stepDelay()); }
