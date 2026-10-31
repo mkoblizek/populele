@@ -798,7 +798,9 @@ input[type=range]{accent-color:var(--led)}
     const apply = () => { state = next; render(); queueSend(); setOpen(open); };
     clearTimeout(blinkTimer);
     const lit = next.some(r => r.some(Boolean));
-    if (lit && JSON.stringify(next) === JSON.stringify(state)){
+    // how long this note lasts (recorded timing): a repeat blink needs time, the LEDs update at most ~8× a second
+    const dur = curTimes && tabPos + 1 < curTimes.length ? (curTimes[tabPos + 1] - curTimes[tabPos]) / (+$('rate').value || 1) : 1;
+    if (lit && dur >= 0.3 && JSON.stringify(next) === JSON.stringify(state)){
       // same note again: blink off briefly so the repeat is visible
       state = STRINGS.map(() => new Array(FRETS).fill(false)); render(); queueSend(); setOpen([]);
       blinkTimer = setTimeout(apply, MIN_INTERVAL + 20);
@@ -1547,7 +1549,7 @@ input[type=range]{accent-color:var(--led)}
         if (f % 300 === 0){ $('timeInfo').textContent = `Analyzuji nahrávku… ${Math.round(100 * e / mono.length)} %`; await new Promise(r => setTimeout(r)); }
       }
       const al = alignSteps(0, onsets), heard = al.filter(t => t != null).length;
-      recTimes = al.slice(); fillTimes(recTimes);
+      recTimes = al.slice(); fillTimes(recTimes, true);
       curUpdate(x => { x.times = recTimes.map(t => t == null ? null : Math.round(t * 1000) / 1000); });
       recording = false; updateTimeInfo();
       $('timeInfo').textContent += ` Rozpoznáno ${heard} z ${tab.steps.length} not, zbytek dopočítán.`;
@@ -1581,7 +1583,7 @@ input[type=range]{accent-color:var(--led)}
     if (k + 1 >= tab.steps.length){ showStep(k); stopRec(true); return; }
     showStep(k + 1);
   }
-  function fillTimes(T){
+  function fillTimes(T, ends){
     const known = []; T.forEach((t, i) => { if (t != null) known.push(i); });
     const g = k => Math.max(1, (tab && tab.steps[k] && tab.steps[k].gap) || 1);
     for (let a = 0; a + 1 < known.length; a++){
@@ -1591,6 +1593,14 @@ input[type=range]{accent-color:var(--led)}
       for (let k = i + 1; k < j; k++){ acc += g(k - 1); T[k] = T[i] + (T[j] - T[i]) * acc / tot; }
     }
     for (let k = 1; k < T.length; k++) if (T[k] != null && T[k - 1] != null && T[k] < T[k - 1]) T[k] = T[k - 1]; // never backwards
+    if (ends && known.length >= 2){
+      // whole recording known: notes before the first / after the last heard one follow the nearby tempo
+      const spc = (i, j) => { let tot = 0; for (let k = i; k < j; k++) tot += g(k); return (T[j] - T[i]) / tot; };
+      const f = known[0], l = known[known.length - 1];
+      const s1 = spc(f, known[1]), s2 = spc(known[known.length - 2], l);
+      for (let k = f - 1; k >= 0; k--) T[k] = Math.max(0, T[k + 1] - g(k) * s1);
+      for (let k = l + 1; k < T.length; k++) T[k] = T[k - 1] + g(k - 1) * s2;
+    }
   }
   function stopRec(save){
     if (!recording) return;
@@ -1627,7 +1637,7 @@ input[type=range]{accent-color:var(--led)}
   }
   function syncLoop(){
     syncRaf = requestAnimationFrame(syncLoop);
-    const t = M.time() + 0.03;
+    const t = M.time() + 0.08; // a little ahead: covers the Bluetooth delay to the fretboard
     let lo = 0, hi = curTimes.length - 1, i = -1;
     while (lo <= hi){ const m = (lo + hi) >> 1; if (curTimes[m] <= t){ i = m; lo = m + 1; } else hi = m - 1; }
     if (i >= 0 && i !== tabPos) showStep(i);
