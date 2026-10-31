@@ -165,6 +165,8 @@ input[type=range]{accent-color:var(--led)}
 .video input[type=url]{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;margin-bottom:10px}
 .ytbox{position:relative;aspect-ratio:16/9;margin-bottom:10px;border-radius:10px;overflow:hidden;background:#000}
 .ytbox iframe,.ytbox > div{position:absolute;inset:0;width:100%;height:100%;border:0}
+.localmedia{display:block;width:100%;max-height:40vh;border-radius:10px;background:#000;margin-bottom:10px}
+.localmedia[hidden]{display:none}
 .btn.rec{border-color:var(--warn);color:var(--warn)}
 .btn:disabled{opacity:.4}
 .transport{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
@@ -270,12 +272,16 @@ input[type=range]{accent-color:var(--led)}
         <label class="check"><input type="checkbox" id="rhythm" checked> Délka not podle mezer v tabu</label>
         <label class="check"><input type="checkbox" id="listen"> Posouvat podle hraní (mikrofon)</label>
         <div class="video">
-          <h3>Rytmus podle videa</h3>
+          <h3>Rytmus podle nahrávky</h3>
           <input type="url" id="ytUrl" placeholder="Odkaz na video z YouTube" autocomplete="off">
+          <button class="btn ghost" id="fileBtn" style="margin-bottom:10px">Video nebo zvuk ze souboru</button>
+          <input type="file" id="mediaFile" accept="audio/*,video/*" hidden>
           <div class="ytbox" id="ytBox" hidden><div id="ytPlayer"></div></div>
+          <video id="localMedia" class="localmedia" controls playsinline preload="metadata" hidden></video>
+          <p class="hint" id="fileInfo" hidden></p>
           <div class="row">
             <button class="btn ghost" id="recBtn">Nahrát časování</button>
-            <button class="btn ghost" id="syncBtn" aria-pressed="false">Hrát s videem</button>
+            <button class="btn ghost" id="syncBtn" aria-pressed="false">Hrát s nahrávkou</button>
           </div>
           <div class="speed"><span>Rychlost</span><select id="rate" aria-label="Rychlost přehrávání">
             <option value="0.5">0,5×</option><option value="0.75">0,75×</option><option value="1" selected>1×</option></select></div>
@@ -868,7 +874,7 @@ input[type=range]{accent-color:var(--led)}
   }
   function playTab(){
     if (!tab || !tab.steps.length || recording) return;
-    if (syncing){ try { yt.getPlayerState() === 1 ? yt.pauseVideo() : yt.playVideo(); } catch(e){} return; }
+    if (syncing){ M.toggle(); return; }
     haltAnim(); clearChordSel(); stopTuner();
     if (tabPos >= tab.steps.length - 1) tabPos = -1;
     tabPlaying = true; setPlayBtn(true);
@@ -893,8 +899,8 @@ input[type=range]{accent-color:var(--led)}
   }
   function go(delta){
     if (!tab) return;
-    if (recording){ if (delta === 1) recMark(tabPos, ytTime()); else if (delta === -1) showStep(tabPos - 1); return; } // pedal marks a note by hand
-    if (syncing){ const i = Math.max(0, Math.min(tab.steps.length - 1, tabPos + delta)); try { yt.seekTo(curTimes[i], true); } catch(e){} showStep(i); return; }
+    if (recording){ if (delta === 1) recMark(tabPos, M.time()); else if (delta === -1) showStep(tabPos - 1); return; } // pedal marks a note by hand
+    if (syncing){ const i = Math.max(0, Math.min(tab.steps.length - 1, tabPos + delta)); M.seek(curTimes[i]); showStep(i); return; }
     pauseTab(); haltAnim(); clearChordSel(); stopTuner(); showStep(tabPos + delta);
   }
 
@@ -913,8 +919,7 @@ input[type=range]{accent-color:var(--led)}
     buildTabView();
     haltAnim(); clearChordSel();
     const entry = libRemember(text, tab.steps.length);
-    $('ytUrl').value = entry.video || '';
-    updateTimeInfo(); ytPrepare();
+    setSource(entry);
     tabPos = -1; showStep(0);
   }
 
@@ -1196,7 +1201,8 @@ input[type=range]{accent-color:var(--led)}
   // An onset is a sudden rise in the short-window spectrum (spectral flux, in dB so the mic level
   // does not matter). About 0.1 s later the long-window spectrum shows which notes gained energy.
   const LO_MIDI = 50, HI_MIDI = 92;
-  function makeDetector(sr, nBig, nSmall){
+  function makeDetector(sr, nBig, nSmall, fps){
+    const evalF = Math.round(0.1 * fps), backF = Math.max(2, Math.round(0.04 * fps)), fluxN = Math.round(0.67 * fps);
     const binBig = sr / nBig, binSmall = sr / nSmall, nNotes = HI_MIDI - LO_MIDI + 1;
     const hist = [], fluxHist = [];
     let peakDb = -200, prevMag = null, lastOnset = -1e9, pending = [], frame = 0, prevFlux = 0;
@@ -1216,7 +1222,7 @@ input[type=range]{accent-color:var(--led)}
     }
     function feed(dbBig, dbSmall, now, vt){
       frame++;
-      const sal = salience(dbBig); hist.push(sal); if (hist.length > 20) hist.shift();
+      const sal = salience(dbBig); hist.push(sal); if (hist.length > evalF + backF + 4) hist.shift();
       const lo = Math.floor(60 / binSmall), hi = Math.min(dbSmall.length - 1, Math.ceil(5000 / binSmall));
       let fmax = -200; for (let k = lo; k <= hi; k++) if (dbSmall[k] > fmax) fmax = dbSmall[k];
       peakDb = Math.max(fmax, peakDb - 0.05);
@@ -1227,15 +1233,15 @@ input[type=range]{accent-color:var(--led)}
         if (prevMag){ const d = mag[k] - prevMag[k]; if (d > 0) flux += d; }
       }
       flux /= (hi - lo + 1); prevMag = mag;
-      fluxHist.push(flux); if (fluxHist.length > 40) fluxHist.shift();
+      fluxHist.push(flux); if (fluxHist.length > fluxN) fluxHist.shift();
       const med = fluxHist.slice().sort((x, y) => x - y)[Math.floor(fluxHist.length / 2)];
       if (flux > med * 1.6 + 1 && flux > prevFlux && now - lastOnset > 0.07 && fmax > -85){
-        lastOnset = now; pending.push({ frame, vt, before: hist[Math.max(0, hist.length - 3)] });
+        lastOnset = now; pending.push({ frame, vt, before: hist[Math.max(0, hist.length - 1 - backF)] });
       }
       prevFlux = flux;
       const out = [];
       pending = pending.filter(q => {
-        if (frame - q.frame < 6) return true;
+        if (frame - q.frame < evalF) return true;
         const inc = new Float32Array(nNotes); let mx = 1e-20;
         for (let n = 0; n < nNotes; n++){ inc[n] = Math.max(0, sal[n] - q.before[n]); if (inc[n] > mx) mx = inc[n]; }
         for (let n = 0; n < nNotes; n++) inc[n] /= mx; // gain relative to the strongest gain, 0..1
@@ -1269,7 +1275,7 @@ input[type=range]{accent-color:var(--led)}
     lSmall = actx.createAnalyser(); lSmall.fftSize = 1024; lSmall.smoothingTimeConstant = 0;
     src.connect(lBig); src.connect(lSmall);
     fBig = new Float32Array(lBig.frequencyBinCount); fSmall = new Float32Array(lSmall.frequencyBinCount);
-    lDet = makeDetector(actx.sampleRate, 8192, 1024);
+    lDet = makeDetector(actx.sampleRate, 8192, 1024, 60);
     listenLoop();
     return true;
   }
@@ -1282,7 +1288,7 @@ input[type=range]{accent-color:var(--led)}
   function listenLoop(){
     lRaf = requestAnimationFrame(listenLoop);
     lBig.getFloatFrequencyData(fBig); lSmall.getFloatFrequencyData(fSmall);
-    for (const o of lDet.feed(fBig, fSmall, performance.now() / 1000, ytTime())) onOnset(o);
+    for (const o of lDet.feed(fBig, fSmall, performance.now() / 1000, M.time())) onOnset(o);
   }
   function onOnset(o){
     if (!tab || tabPos < 0) return;
@@ -1394,7 +1400,7 @@ input[type=range]{accent-color:var(--led)}
   $('libDel').onclick = () => {
     const e = libLoad().find(x => x.id === $('libSel').value); if (!e) return;
     if (!confirm(`Smazat „${e.title}“ z uložených tabů?`)) return;
-    libSave(libLoad().filter(x => x.id !== e.id));
+    libSave(libLoad().filter(x => x.id !== e.id)); idb.del(e.id).catch(() => {});
     if (curEntry === e.id){ curEntry = null; curTimes = null; updateTimeInfo(); }
   };
   function updateTimeInfo(){
@@ -1402,13 +1408,24 @@ input[type=range]{accent-color:var(--led)}
     curTimes = timed(e) ? e.times : null;
     $('timeInfo').textContent = curTimes ? `Časování nahrané pro všech ${n} kroků. Přehrát pak hraje v tomto rytmu i bez videa.`
       : k ? `Časování nahrané pro ${k} z ${n} kroků. Klepni na první chybějící notu v tabu a nahraj zbytek.`
-      : 'Vlož odkaz, klepni na Nahrát časování a nech video hrát nahlas. Appka pozná noty a zapíše si jejich časy.';
+      : (mediaKind === 'file' ? 'Klepni na Načasovat ze souboru, appka nahrávku projde sama.' : 'Vlož odkaz a klepni na Nahrát časování, nebo načti video či zvuk ze souboru (přesnější).');
     $('syncBtn').disabled = !curTimes;
+    if (!recording) $('recBtn').textContent = mediaKind === 'file' ? 'Načasovat ze souboru' : 'Nahrát časování';
   }
 
-  // ----- YouTube video: record the timing of each step, then play in sync -----
-  let yt = null, ytReady = null, ytVid = '', recording = false, syncing = false, syncRaf = 0, recTimes = [], recOnsets = [], recFrom = 0, recManual = new Map();
-  const ytTime = () => { try { return yt && yt.getCurrentTime ? yt.getCurrentTime() : 0; } catch(e){ return 0; } };
+  // ----- Recording to follow: a YouTube video or a local video/audio file -----
+  let yt = null, ytReady = null, ytVid = '', mediaKind = '', recording = false, syncing = false, syncRaf = 0,
+      recTimes = [], recOnsets = [], recFrom = 0, recManual = new Map();
+  const media = () => $('localMedia');
+  // one interface for both players
+  const M = {
+    time(){ try { return mediaKind === 'file' ? media().currentTime : (yt && yt.getCurrentTime ? yt.getCurrentTime() : 0); } catch(e){ return 0; } },
+    seek(t){ try { if (mediaKind === 'file') media().currentTime = t; else yt.seekTo(t, true); } catch(e){} },
+    play(){ try { if (mediaKind === 'file') media().play(); else yt.playVideo(); } catch(e){} },
+    pause(){ try { if (mediaKind === 'file') media().pause(); else if (yt) yt.pauseVideo(); } catch(e){} },
+    rate(r){ try { if (mediaKind === 'file') media().playbackRate = r; else yt.setPlaybackRate(r); } catch(e){} },
+    toggle(){ try { if (mediaKind === 'file'){ media().paused ? media().play() : media().pause(); } else { yt.getPlayerState() === 1 ? yt.pauseVideo() : yt.playVideo(); } } catch(e){} }
+  };
   const ytId = url => { const s = String(url).trim(), m = s.match(/(?:youtu\.be\/|[?&]v=|embed\/|shorts\/|live\/)([\w-]{11})/);
     return m ? m[1] : (/^[\w-]{11}$/.test(s) ? s : ''); };
   function ytApi(){
@@ -1432,17 +1449,120 @@ input[type=range]{accent-color:var(--led)}
     });
     ytVid = id; return yt;
   }
+  const prepare = async () => mediaKind === 'file' ? !!media().src : !!(await ytPrepare());
+
+  // local files are kept in the browser (IndexedDB) so they work offline next time
+  const idb = (() => {
+    let dbp = null;
+    const open = () => dbp || (dbp = new Promise((res, rej) => {
+      const r = indexedDB.open('populele', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('media');
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }));
+    const tx = (mode, fn) => open().then(db => new Promise((res, rej) => {
+      const t = db.transaction('media', mode), rq = fn(t.objectStore('media'));
+      t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    }));
+    return { get: k => tx('readonly', s => s.get(k)), put: (k, v) => tx('readwrite', s => s.put(v, k)), del: k => tx('readwrite', s => s.delete(k)) };
+  })();
+  function showFile(blob, name){
+    const el = media();
+    if (el.src) URL.revokeObjectURL(el.src);
+    el.src = URL.createObjectURL(blob); el.hidden = false;
+    $('fileInfo').hidden = false; $('fileInfo').textContent = 'Soubor: ' + name;
+  }
+  function hideFile(){ const el = media(); el.pause(); el.hidden = true; $('fileInfo').hidden = true; }
+  async function setSource(e){
+    $('ytUrl').value = e.video || '';
+    if (e.source === 'file' && e.media){
+      mediaKind = 'file'; $('ytBox').hidden = true; M.pause();
+      const blob = await idb.get(e.id).catch(() => null);
+      if (blob) showFile(blob, e.media.name);
+      else { media().hidden = true; $('fileInfo').hidden = false; $('fileInfo').textContent = `Soubor „${e.media.name}“ v tomhle zařízení není, načti ho znovu.`; }
+    } else {
+      mediaKind = ytId(e.video || '') ? 'yt' : '';
+      hideFile(); ytPrepare();
+    }
+    updateTimeInfo();
+  }
   $('ytUrl').addEventListener('change', () => {
     const v = $('ytUrl').value.trim();
-    curUpdate(e => { if (e.video && e.video !== v) e.times = []; e.video = v; }); // another video: timing no longer fits
+    curUpdate(e => { if (e.source === 'file' || (e.video && e.video !== v)) e.times = []; e.video = v; e.source = 'yt'; }); // another recording: old timing no longer fits
+    stopSync(); mediaKind = ytId(v) ? 'yt' : ''; hideFile();
     updateTimeInfo(); ytPrepare();
   });
-  $('rate').addEventListener('change', () => { if (syncing) try { yt.setPlaybackRate(+$('rate').value); } catch(e){} });
+  $('fileBtn').onclick = () => $('mediaFile').click();
+  $('mediaFile').addEventListener('change', async ev => {
+    const f = ev.target.files[0]; ev.target.value = '';
+    if (!f || !tab) return;
+    stopSync(); stopRec(false);
+    curUpdate(e => {
+      if (e.source !== 'file' || !e.media || e.media.name !== f.name || e.media.size !== f.size) e.times = [];
+      e.source = 'file'; e.media = { name: f.name, type: f.type, size: f.size };
+    });
+    try { await idb.put(curEntry, f); } catch(err){ /* not stored (too big?) – still works until the app is closed */ }
+    mediaKind = 'file'; $('ytBox').hidden = true; try { yt && yt.pauseVideo(); } catch(e){}
+    showFile(f, f.name); updateTimeInfo();
+  });
+  $('rate').addEventListener('change', () => { if (syncing) M.rate(+$('rate').value); });
 
+  // ---- timing from a file: the whole recording is analysed at once, no microphone ----
+  function makeFFT(n){
+    const win = new Float32Array(n), rev = new Uint32Array(n), cs = new Float64Array(n / 2), sn = new Float64Array(n / 2);
+    for (let i = 0; i < n; i++) win[i] = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / n) + 0.08 * Math.cos(4 * Math.PI * i / n);
+    for (let i = 0, bits = Math.log2(n); i < n; i++){ let r = 0; for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b); rev[i] = r; }
+    for (let i = 0; i < n / 2; i++){ cs[i] = Math.cos(-2 * Math.PI * i / n); sn[i] = Math.sin(-2 * Math.PI * i / n); }
+    const re = new Float64Array(n), im = new Float64Array(n), out = new Float32Array(n / 2);
+    return (x, start) => {
+      for (let i = 0; i < n; i++){ re[rev[i]] = (x[start + i] || 0) * win[i]; im[rev[i]] = 0; }
+      for (let len = 2; len <= n; len <<= 1){
+        const half = len >> 1, step = n / len;
+        for (let i = 0; i < n; i += len) for (let k = 0; k < half; k++){
+          const c = cs[k * step], s = sn[k * step], a = i + k, b = a + half;
+          const xr = re[b] * c - im[b] * s, xi = re[b] * s + im[b] * c;
+          re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        }
+      }
+      for (let k = 0; k < n / 2; k++) out[k] = 20 * Math.log10(Math.hypot(re[k], im[k]) / n + 1e-12);
+      return out;
+    };
+  }
+  async function analyzeFile(){
+    stopAnim();
+    const el = media(); if (!el.src) return;
+    recording = true; // blocks other actions while busy
+    $('recBtn').disabled = true;
+    try {
+      $('timeInfo').textContent = 'Čtu zvuk ze souboru…';
+      const ac = audio();
+      const blob = await fetch(el.src).then(r => r.blob());
+      const buf = await ac.decodeAudioData(await blob.arrayBuffer());
+      const SR = 22050, NB = 4096, NS = 512, HOP = 256;
+      const off = new OfflineAudioContext(1, Math.ceil(buf.duration * SR), SR);
+      const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
+      const mono = (await off.startRendering()).getChannelData(0);
+      const det = makeDetector(SR, NB, NS, SR / HOP), fB = makeFFT(NB), fS = makeFFT(NS), onsets = [];
+      for (let e = NB, f = 0; e <= mono.length; e += HOP, f++){
+        for (const o of det.feed(fB(mono, e - NB), fS(mono, e - NS), e / SR, (e - NS / 2) / SR)) onsets.push({ t: o.vt, inc: o.inc });
+        if (f % 300 === 0){ $('timeInfo').textContent = `Analyzuji nahrávku… ${Math.round(100 * e / mono.length)} %`; await new Promise(r => setTimeout(r)); }
+      }
+      const al = alignSteps(0, onsets), heard = al.filter(t => t != null).length;
+      recTimes = al.slice(); fillTimes(recTimes);
+      curUpdate(x => { x.times = recTimes.map(t => t == null ? null : Math.round(t * 1000) / 1000); });
+      recording = false; updateTimeInfo();
+      $('timeInfo').textContent += ` Rozpoznáno ${heard} z ${tab.steps.length} not, zbytek dopočítán.`;
+    } catch (err) {
+      recording = false; updateTimeInfo();
+      $('timeInfo').textContent = 'Zvuk ze souboru se nepodařilo zpracovat: ' + err.message;
+    } finally { recording = false; $('recBtn').disabled = false; }
+  }
+
+  // ---- timing live from YouTube, through the microphone ----
   async function startRec(){
     if (!tab) return;
-    if (!ytId($('ytUrl').value)){ $('timeInfo').textContent = 'Nejdřív vlož odkaz na video z YouTube.'; return; }
-    const p = await ytPrepare(); if (!p) return;
+    if (mediaKind === 'file') return analyzeFile();
+    if (!ytId($('ytUrl').value)){ $('timeInfo').textContent = 'Nejdřív vlož odkaz na video, nebo načti soubor.'; return; }
+    if (!(await prepare())) return;
     stopAnim();
     const e = curGet();
     recTimes = (e && e.times && e.times.length === tab.steps.length) ? e.times.slice() : new Array(tab.steps.length).fill(null);
@@ -1453,8 +1573,8 @@ input[type=range]{accent-color:var(--led)}
     showStep(from);
     if (!(await startListen())){ stopRec(false); return; }
     // continue right after the last recorded note, or from the start
-    p.seekTo(from > 0 && recTimes[from - 1] != null ? Math.max(0, recTimes[from - 1] - 1) : 0, true);
-    p.setPlaybackRate(1); p.playVideo();
+    M.seek(from > 0 && recTimes[from - 1] != null ? Math.max(0, recTimes[from - 1] - 1) : 0);
+    M.rate(1); M.play();
   }
   function recMark(k, t){ // pedal / Next while recording: this note is now, for sure
     recManual.set(k, t);
@@ -1475,8 +1595,8 @@ input[type=range]{accent-color:var(--led)}
   function stopRec(save){
     if (!recording) return;
     recording = false; stopListen();
-    $('recBtn').textContent = 'Nahrát časování'; $('recBtn').classList.remove('rec');
-    try { yt.pauseVideo(); } catch(e){}
+    $('recBtn').classList.remove('rec');
+    M.pause();
     if (save && (recOnsets.length || recManual.size)){
       // fit the notes to what was heard, keep earlier timing before the starting note, then the pedal marks
       const lastT = Math.max(recOnsets.length ? recOnsets[recOnsets.length - 1].t : 0, ...recManual.values());
@@ -1496,18 +1616,18 @@ input[type=range]{accent-color:var(--led)}
 
   async function startSync(){
     if (!curTimes) return;
-    const p = await ytPrepare(); if (!p) return;
+    if (!(await prepare())) return;
     stopAnim();
     syncing = true;
-    $('syncBtn').textContent = 'Zastavit video'; $('syncBtn').setAttribute('aria-pressed', 'true');
-    p.setPlaybackRate(+$('rate').value);
-    p.seekTo(tabPos > 0 ? Math.max(0, curTimes[tabPos] - 0.5) : 0, true);
-    p.playVideo();
+    $('syncBtn').textContent = 'Zastavit nahrávku'; $('syncBtn').setAttribute('aria-pressed', 'true');
+    M.rate(+$('rate').value);
+    M.seek(tabPos > 0 ? Math.max(0, curTimes[tabPos] - 0.5) : 0);
+    M.play();
     syncLoop();
   }
   function syncLoop(){
     syncRaf = requestAnimationFrame(syncLoop);
-    const t = ytTime() + 0.03;
+    const t = M.time() + 0.03;
     let lo = 0, hi = curTimes.length - 1, i = -1;
     while (lo <= hi){ const m = (lo + hi) >> 1; if (curTimes[m] <= t){ i = m; lo = m + 1; } else hi = m - 1; }
     if (i >= 0 && i !== tabPos) showStep(i);
@@ -1515,10 +1635,11 @@ input[type=range]{accent-color:var(--led)}
   function stopSync(){
     if (!syncing) return;
     syncing = false; cancelAnimationFrame(syncRaf);
-    try { yt.pauseVideo(); } catch(e){}
-    $('syncBtn').textContent = 'Hrát s videem'; $('syncBtn').setAttribute('aria-pressed', 'false');
+    M.pause();
+    $('syncBtn').textContent = 'Hrát s nahrávkou'; $('syncBtn').setAttribute('aria-pressed', 'false');
   }
   $('syncBtn').onclick = () => syncing ? stopSync() : startSync();
+  media().addEventListener('ended', () => stopSync());
 
   // ----- Tuner: microphone + McLeod pitch detection -----
   const TUNE = [
@@ -1718,7 +1839,7 @@ input[type=range]{accent-color:var(--led)}
     if (k < 0) k = tab.steps.findIndex(s => s.orig === o);
     if (k < 0) return;
     if (recording){ showStep(k); return; } // resync the expected note
-    if (syncing){ try { yt.seekTo(curTimes[k], true); } catch(err){} showStep(k); return; }
+    if (syncing){ M.seek(curTimes[k]); showStep(k); return; }
     const wasPlaying = tabPlaying;
     haltAnim(); clearChordSel();
     if (wasPlaying && lStream){ showStep(k); return; } // keep listening from the new spot
